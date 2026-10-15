@@ -1,0 +1,18 @@
+# Visual Studio / TwinCAT user state
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+DATN.project.~u
+*.project.~u
+
+# Generated TwinCAT build/runtime artifacts
+**/_Boot/
+**/_CompileInfo/
+**/*.tmc
+
+# Temporary/backup files
+*.tmp
+*.log
+*.bak
