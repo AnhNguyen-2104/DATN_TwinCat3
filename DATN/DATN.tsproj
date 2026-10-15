@@ -1446,7 +1446,7 @@ External Setpoint Generation:
 		<ImageData Id="1000">424dd6020000000000003600000028000000100000000e0000000100180000000000a002000000000000000000000000000000000000e3e3e3f2f2f2f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f1f3f6f1f5faf1f5faf1f5faf1f5faf1f5faf1f1f2f2f2f2e3e3e3f1f1f1ffffffffffffffffffffffffffffffffffffffebd5ffd8b0ffdab4ffdab4ffdab4ffd6acfffffffffffff1f1f1f0f0f0ffffffffffffffffffffffffffffffffffffffe1c3ffc78fffca95ffca95ffca95ffc489fffdfdfffffff0f0f0f0f0f0ffffffffffffffffffffffffffffffffffffffecceffd29affcc99ffcc99ffd59fffc68efffffffffffff0f0f0fafafaa7aaad555556716e6bffffff919497474a4da48a718c6e50ffdfa7ffdda58b7156ffd499939392fffffff0f0f0ffffff293036ffffffffffff80878d6c6660fffffff1d4b84c3d2c9c7957b5926d1d130bffebad20211efffffff0f0f0ffffff43494f525456b1b2b32b343dffffffffffffffeed6e7c39e392b1e675b4eae8c6cffedbc2a2b28fffffff0f0f0ffffff2e3a45fff9c4fff8cb625648b69678ffe8b7ffffffffffff35393c292c2effffffffffff2b2d2cfffffff0f1f1ffffff626669503b25826447ffe5ac483a2b4c382465615bffffffa5aaaf77716bffffff5857572829284e4e4ffaf7f4f0f3f5fffae2ffd59bffd5a0ffcc99ffd9a3ffd599fffffaffffffffffffffffffffffffb5b5b5fffffffffffff7f7f8f0f3f5ffecd7ffc891ffcc99ffcc99ffcc99ffc78ffff7edffffffffffffffffff6c6c621e1e143b3b312b2b21c0c0bff0f3f5ffecd6ffc68effca95ffca95ffca95ffc68bfff6eda5a7ffafafffafafff8f8fe19b9bed9f9fea8e8ee9e1e1e8f1f3f5fff2e1ffd5aaffd8afffd8afffd8afffd6a8fef7f22425f23737f13737f13b3bf54141f50000fa3f3ffbfffff3e3e3e3f2f4f6f1f5faf1f5faf1f5faf1f5faf1f5faf3f4f3fffff2fffff2fffff2fffff2fffff4a4a4dbfffff3e4e4e3</ImageData>
 		<ImageData Id="1001">424dd6020000000000003600000028000000100000000e0000000100180000000000a00200000000000000000000000000000000000000ffff00ffff00000000ffff00ffff00000000000000ffff00ffff00000000000000ffff00000000ffff00000000ffff00ffff00ffff00000000ffff00ffff00000000ffff00ffff00000000ffff00ffff00ffff00000000ffff00000000ffff00ffff00ffff00000000ffff00ffff00000000000000ffff00000000ffff00ffff00ffff00000000000000000000ffff00ffff00ffff00000000ffff00ffff00000000ffff00ffff00000000ffff00ffff00ffff00000000ffff00000000ffff00ffff00000000000000000000ffff00000000000000ffff00ffff00000000000000ffff00000000ffff00000000ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00000000ffff00ffff00ffff00000000ffff00ffff00ffff00000000ffff00000000000000000000000000ffff00ffff00000000ffff00ffff00ffff00000000ffff00ffff00ffff00000000ffff00ffff00ffff00ffff00000000ffff00ffff00000000000000000000ffff00000000000000000000000000000000ffff00000000000000000000000000ffff00ffff00000000ffff00ffff00ffff00000000ffff00ffff00ffff00000000ffff00000000ffff00ffff00ffff00ffff00ffff00000000000000000000ffff00ffff00000000000000000000ffff00ffff00000000000000000000000000ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff00ffff</ImageData>
 	</ImageDatas>
-	<Project ProjectGUID="{A7AD9CD8-C9DE-4865-9C9F-E7ACA9766E53}" Target64Bit="true" ShowHideConfigurations="#x6">
+	<Project ProjectGUID="{A7AD9CD8-C9DE-4865-9C9F-E7ACA9766E53}" TargetNetId="10.81.27.140.1.1" Target64Bit="true" ShowHideConfigurations="#x6">
 		<System>
 			<Licenses>
 				<Target>
@@ -1462,7 +1462,7 @@ External Setpoint Generation:
 		</System>
 		<Motion>
 			<NC>
-				<SafTask Priority="4" CycleTime="20000" AmsPort="501" IoAtBegin="true" SafTaskInfo="256">
+				<SafTask Priority="4" CycleTime="20000" AmsPort="501" IoAtBegin="true" AmsNetId="172.16.0.2.1.1" SafTaskInfo="256">
 					<Name>NC-Task 1 SAF</Name>
 					<Vars VarGrpType="1" InsertType="1">
 						<Name>Inputs</Name>
@@ -1623,7 +1623,7 @@ External Setpoint Generation:
 		</Motion>
 		<Plc>
 			<Project GUID="{ABC736AD-404E-402D-88C6-3D37BC443732}" Name="PLC1" PrjFilePath="PLC1\PLC1.plcproj" TmcFilePath="PLC1\PLC1.tmc" ReloadTmc="true" AmsPort="851" FileArchiveSettings="#x000e" SymbolicMapping="true">
-				<Instance Id="#x08502000" TcSmClass="TComPlcObjDef" KeepUnrestoredLinks="2" TmcPath="PLC1\PLC1.tmc" TmcHash="{4151D7AB-B34A-430B-0CA8-D3EE52E970BC}">
+				<Instance Id="#x08502000" TcSmClass="TComPlcObjDef" KeepUnrestoredLinks="2" TmcPath="PLC1\PLC1.tmc" TmcHash="{782FD26B-6048-3065-7AA0-2DF9DF11B15F}">
 					<Name>PLC1 Instance</Name>
 					<CLSID ClassFactory="TcPlc30">{08500001-0000-0000-F000-000000000064}</CLSID>
 					<Vars VarGrpType="1">
