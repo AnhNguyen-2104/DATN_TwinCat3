@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
   <POU Name="FB_EziServoControl" Id="{fdecb1d2-61f3-46e2-afa9-a8b3a522effc}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_EziServoControl

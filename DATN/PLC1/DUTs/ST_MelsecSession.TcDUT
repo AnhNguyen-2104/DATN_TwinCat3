@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
   <DUT Name="ST_MelsecSession" Id="{b4004d4f-9d95-4239-a00d-cfda0619eecc}">
     <Declaration><![CDATA[TYPE ST_MelsecSession :
