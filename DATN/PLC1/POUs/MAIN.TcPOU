@@ -71,6 +71,7 @@ VAR
     // ================================================================
     fbTracking4Pt       : FB_ConveyorTracking4Pt;
 
+    bSystemReset        : BOOL := FALSE;    // TRUE một chu kỳ: reset mốc phần mềm về 0
     // Camera giả lập test
     bCameraTrigger      : BOOL := FALSE;    // FALSE -> TRUE: chốt sản phẩm mới
     rCameraCenterX      : LREAL := 50.0;    // Tâm phôi X, mm
@@ -172,16 +173,16 @@ END_IF;
 // Camera chốt mốc Encoder, sau đó bốn góc cập nhật mỗi scan.
 // ================================================================
 fbTracking4Pt(
+    bResetSystem   := bSystemReset,
     bCameraResult  := bCameraTrigger,
     rCenterX_mm    := rCameraCenterX,
     rCenterY_mm    := rCameraCenterY,
     rAngleDeg      := rCameraAngleDeg,
     rLength_mm     := rProductLength,
     rWidth_mm      := rProductWidth,
-
     nEncoderNow    := nEncoderPulse,
     rMmPerPulse    := 0.476475,
-
+    rXMaxLimit_mm  := 180.0,
     bProductValid  => bProductValid,
     nPulseAtCamera => nPulseAtCamera,
     nPulseTravel   => nPulseTravel,

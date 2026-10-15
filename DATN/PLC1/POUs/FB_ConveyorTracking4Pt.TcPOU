@@ -3,23 +3,16 @@
   <POU Name="FB_ConveyorTracking4Pt" Id="{f45dd975-916c-42e3-9485-f5e77a4a0ab5}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_ConveyorTracking4Pt
 VAR_INPUT
-    // ================================================================
-    // CAMERA / VISION
-    // Camera trả dữ liệu tại đúng thời điểm bCameraResult có cạnh lên.
-    // ================================================================
-    bCameraResult    : BOOL;              // Cạnh lên: Camera vừa có kết quả hợp lệ
-    rCenterX_mm      : LREAL;            // Tâm phôi X tại thời điểm Camera chụp
-    rCenterY_mm      : LREAL;            // Tâm phôi Y tại thời điểm Camera chụp
-    rAngleDeg        : LREAL;            // Góc quay phôi, Degree
-    rLength_mm       : LREAL := 40.0;    // Chiều dài phôi
-    rWidth_mm        : LREAL := 40.0;    // Chiều rộng phôi
-
-    // ================================================================
-    // ENCODER BĂNG TẢI
-    // Lấy trực tiếp từ FB_ConveyorEncoder.
-    // ================================================================
-    nEncoderNow      : UINT;             // Counter Encoder tại scan hiện tại
-    rMmPerPulse      : LREAL := 0.476475; // mm/xung Encoder
+    bResetSystem     : BOOL;              // TRUE: reset baseline và toàn bộ điểm
+    bCameraResult    : BOOL;              // Cạnh lên: Camera có kết quả hợp lệ
+    rCenterX_mm      : LREAL;
+    rCenterY_mm      : LREAL;
+    rAngleDeg        : LREAL;
+    rLength_mm       : LREAL := 40.0;
+    rWidth_mm        : LREAL := 40.0;
+    nEncoderNow      : UINT;
+    rMmPerPulse      : LREAL := 0.476475;
+    rXMaxLimit_mm    : LREAL := 180.0;
 END_VAR
 
 VAR_OUTPUT
@@ -54,85 +47,71 @@ VAR
     rHalfWidth       : LREAL;
 
     nIndex           : INT;
+    bFirstScan       : BOOL := TRUE;
 END_VAR]]></Declaration>
     <Implementation>
-      <ST><![CDATA[// ================================================================
-// 1. BẮT CẠNH LÊN CAMERA
-// Camera chỉ được chốt một lần cho một sản phẩm.
-// ================================================================
+// Reset một lần khi PLC khởi động hoặc khi bResetSystem được kích.
+IF bFirstScan OR bResetSystem THEN
+    bFirstScan := FALSE;
+    bProductValid := FALSE;
+    nPulseAtCamera := nEncoderNow;
+    nPulseTravel := 0;
+    rTravel_mm := 0.0;
+
+    FOR nIndex := 1 TO 4 DO
+        aCornerBase[nIndex].X := 0.0;
+        aCornerBase[nIndex].Y := 0.0;
+        aCornerNow[nIndex].X := 0.0;
+        aCornerNow[nIndex].Y := 0.0;
+    END_FOR;
+END_IF;
+
 fbCameraEdge(CLK := bCameraResult);
 
-
-// ================================================================
-// 2. CAMERA CÓ KẾT QUẢ:
-//    - Chốt Encoder tại khoảnh khắc chụp
-//    - Tính bốn góc gốc của phôi 40 x 40 theo góc Camera
-// ================================================================
+// Camera chụp: chốt encoder và tính bốn góc gốc.
 IF fbCameraEdge.Q THEN
-    // Mốc Encoder dùng để tính toàn bộ độ trôi sau đó.
     nPulseAtCamera := nEncoderNow;
-
-    // Ban đầu phôi chưa trôi kể từ lúc Camera chụp.
     nPulseTravel := 0;
-    rTravel_mm   := 0.0;
+    rTravel_mm := 0.0;
 
-    // Đổi góc từ Degree sang Radian.
     rRad := rAngleDeg * 3.141592653589793 / 180.0;
     rCosA := COS(rRad);
     rSinA := SIN(rRad);
-
     rHalfLength := rLength_mm / 2.0;
-    rHalfWidth  := rWidth_mm / 2.0;
+    rHalfWidth := rWidth_mm / 2.0;
 
-    // Góc 1: (+Length/2, +Width/2)
-    aCornerBase[1].X := rCenterX_mm +
-                         (rHalfLength * rCosA - rHalfWidth * rSinA);
-    aCornerBase[1].Y := rCenterY_mm +
-                         (rHalfLength * rSinA + rHalfWidth * rCosA);
+    aCornerBase[1].X := rCenterX_mm + rHalfLength * rCosA - rHalfWidth * rSinA;
+    aCornerBase[1].Y := rCenterY_mm + rHalfLength * rSinA + rHalfWidth * rCosA;
+    aCornerBase[2].X := rCenterX_mm - rHalfLength * rCosA - rHalfWidth * rSinA;
+    aCornerBase[2].Y := rCenterY_mm - rHalfLength * rSinA + rHalfWidth * rCosA;
+    aCornerBase[3].X := rCenterX_mm - rHalfLength * rCosA + rHalfWidth * rSinA;
+    aCornerBase[3].Y := rCenterY_mm - rHalfLength * rSinA - rHalfWidth * rCosA;
+    aCornerBase[4].X := rCenterX_mm + rHalfLength * rCosA + rHalfWidth * rSinA;
+    aCornerBase[4].Y := rCenterY_mm + rHalfLength * rSinA - rHalfWidth * rCosA;
 
-    // Góc 2: (-Length/2, +Width/2)
-    aCornerBase[2].X := rCenterX_mm +
-                         (-rHalfLength * rCosA - rHalfWidth * rSinA);
-    aCornerBase[2].Y := rCenterY_mm +
-                         (-rHalfLength * rSinA + rHalfWidth * rCosA);
-
-    // Góc 3: (-Length/2, -Width/2)
-    aCornerBase[3].X := rCenterX_mm +
-                         (-rHalfLength * rCosA + rHalfWidth * rSinA);
-    aCornerBase[3].Y := rCenterY_mm +
-                         (-rHalfLength * rSinA - rHalfWidth * rCosA);
-
-    // Góc 4: (+Length/2, -Width/2)
-    aCornerBase[4].X := rCenterX_mm +
-                         (rHalfLength * rCosA + rHalfWidth * rSinA);
-    aCornerBase[4].Y := rCenterY_mm +
-                         (rHalfLength * rSinA - rHalfWidth * rCosA);
-
+    FOR nIndex := 1 TO 4 DO
+        aCornerNow[nIndex] := aCornerBase[nIndex];
+    END_FOR;
     bProductValid := TRUE;
 END_IF;
 
-
-// ================================================================
-// 3. MỖI SCAN PLC:
-//    - Tính quãng phôi trôi từ Encoder thật
-//    - Cập nhật bốn góc thời gian thực.
-// Băng tải đang chạy dọc theo trục X.
-// ================================================================
+// Tracking thời gian thực theo encoder.
 IF bProductValid THEN
-    nPulseTravel := TO_INT(
-        TO_DINT(nEncoderNow) - TO_DINT(nPulseAtCamera)
-    );
-
+    nPulseTravel := TO_INT(nEncoderNow - nPulseAtCamera);
     rTravel_mm := TO_LREAL(nPulseTravel) * rMmPerPulse;
 
     FOR nIndex := 1 TO 4 DO
-        // X thay đổi theo băng tải.
         aCornerNow[nIndex].X := aCornerBase[nIndex].X + rTravel_mm;
-
-        // Băng tải không chạy theo Y, nên Y giữ nguyên.
         aCornerNow[nIndex].Y := aCornerBase[nIndex].Y;
     END_FOR;
-END_IF;]]></ST>
+
+    // Hủy sản phẩm nếu toàn bộ cạnh phía sau đã vượt vùng X của Gantry.
+    IF (aCornerNow[2].X > rXMaxLimit_mm) AND (aCornerNow[3].X > rXMaxLimit_mm) THEN
+        bProductValid := FALSE;
+        nPulseTravel := 0;
+        rTravel_mm := 0.0;
+    END_IF;
+END_IF;
     </Implementation>
     <LineIds Name="FB_ConveyorTracking4Pt">
       <LineId Id="63" Count="75" />
