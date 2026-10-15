@@ -41,14 +41,15 @@ VAR
     fbWrite             : FB_MelsecWrite;
     fbRead              : FB_MelsecRead;
     bM1000_Value        : BOOL;
-    bM1001_Value        : BOOL;
-    bM102_Value         : BOOL;
-    bM104_Value         : BOOL;
-    bWriteReq           : BOOL;
-    bReadReq            : BOOL;
-    bReadM1001Req       : BOOL;
-    bWriteM1000Req      : BOOL;
+    bM105_Value         : BOOL;
+    bStatusM1001        : BOOL;
+    bStatusM102         : BOOL;
+    bStatusM103         : BOOL;
+    bStatusM104         : BOOL;
     bWriteCommandReq    : BOOL;
+    bWriteM1000Req      : BOOL;
+    bWriteM105Req       : BOOL;
+    bReadStatusReq      : BOOL;
     bWriteDone          : BOOL;
     bWriteError         : BOOL;
     bReadDone           : BOOL;
@@ -56,18 +57,29 @@ VAR
     nCommError          : UDINT;
     tonPoll             : TON;
     tonTimeout          : TON;
+    eWriteDevice        : E_MelsecDevice;
+    nWriteAddress       : UDINT;
+    nWritePoints        : UINT;
+    bWriteBitMode       : BOOL;
+    pWriteData          : PVOID;
+    nWriteDataSize      : UDINT;
+    nStatusIndex        : INT;
+    bStatusBit          : BOOL;
     fbStartEdge         : R_TRIG;
     nState              : INT := 0;
 END_VAR]]></Declaration>
     <Implementation>
       <ST><![CDATA[fbStartEdge(CLK := bStartCycle);
 
-bWriteCommand := FALSE;
-bWriteStart := FALSE;
-bReadM1001Req := FALSE;
+bWriteCommandReq := FALSE;
+bWriteM1000Req := FALSE;
+bWriteM105Req := FALSE;
+bReadStatusReq := FALSE;
 
 IF bAbortCycle THEN
     bCmdM105 := TRUE;
+    bM105_Value := TRUE;
+    bWriteM105Req := TRUE;
     bCmdM1000 := FALSE;
     bBusy := FALSE;
     bDone := FALSE;
@@ -76,148 +88,91 @@ ELSE
     bCmdM105 := FALSE;
     CASE nState OF
         0:
-            bBusy := FALSE;
-            bDone := FALSE;
-            bError := FALSE;
-            nErrorCode := 0;
-            bCmdM1000 := FALSE;
+            bBusy := FALSE; bDone := FALSE; bError := FALSE; nErrorCode := 0; bCmdM1000 := FALSE;
             IF fbStartEdge.Q THEN
-                IF NOT stSession.bConnected THEN
-                    bError := TRUE; nErrorCode := 900;
-                ELSIF bM104_Alarm THEN
-                    bError := TRUE; nErrorCode := 901;
-                ELSE
-                    bBusy := TRUE;
-                    nCurrentVertex := 1;
-                    nState := 10;
-                END_IF;
+                IF NOT stSession.bConnected THEN bError := TRUE; nErrorCode := 900;
+                ELSIF bStatusM104 THEN bError := TRUE; nErrorCode := 901;
+                ELSE bBusy := TRUE; nCurrentVertex := 1; nState := 10; END_IF;
             END_IF;
-
         10:
-            IF bM104_Alarm THEN
-                bError := TRUE; nErrorCode := 901; nState := 99;
-            ELSIF NOT bM102_Busy AND NOT bM1001_Done THEN
-                nState := 20;
-            END_IF;
-
+            IF bStatusM104 THEN bError := TRUE; nErrorCode := 901; nState := 99;
+            ELSIF NOT bStatusM102 AND NOT bStatusM1001 THEN nState := 20; END_IF;
         20:
             rLead_mm := rConveyorSpeed_mm_s * rFlyTime_s;
             rDeltaXSync_mm := rConveyorSpeed_mm_s * rSyncTime_s;
             rTargetX_mm := aCornerNow[nCurrentVertex].X + rLead_mm;
             rTargetY_mm := aCornerNow[nCurrentVertex].Y;
-
-            IF rTargetX_mm < 0.0 OR rTargetX_mm + rDeltaXSync_mm > 180.0 THEN
-                bError := TRUE; nErrorCode := 501; nState := 99;
-            ELSIF rTargetY_mm < 0.0 OR rTargetY_mm > 170.0 THEN
-                bError := TRUE; nErrorCode := 502; nState := 99;
-            ELSIF rZDown_mm > 52.0 OR rZSafe_mm > 52.0 OR rZDown_mm < rZSafe_mm THEN
-                bError := TRUE; nErrorCode := 503; nState := 99;
-            ELSE
-                stCommand.Target_X := LREAL_TO_DINT(rTargetX_mm * 10000.0);
-                stCommand.Target_Y := LREAL_TO_DINT(rTargetY_mm * 10000.0);
-                stCommand.Target_Z_Down := LREAL_TO_DINT(rZDown_mm * 10000.0);
-                stCommand.Target_Z_Safe := LREAL_TO_DINT(rZSafe_mm * 10000.0);
-                stCommand.Speed_Approach := LREAL_TO_DINT(rApproachSpeed_mm_s * 6000.0);
-                stCommand.Speed_Sync := LREAL_TO_DINT(rConveyorSpeed_mm_s * 6000.0);
-                stCommand.DeltaX_Sync := LREAL_TO_DINT(rDeltaXSync_mm * 10000.0);
-                stCommand.Vertex_Index := nCurrentVertex;
-                bWriteCommand := TRUE;
-                nState := 21;
-            END_IF;
-
-        21:
-            IF bWriteDone THEN
-                bCmdM1000 := TRUE;
-                bWriteStart := TRUE;
-                nState := 22;
-            ELSIF bWriteError THEN
-                bError := TRUE; nErrorCode := 910; nState := 99;
-            END_IF;
-
-        22:
-            IF bWriteDone THEN
-                tonTimeout(IN := TRUE, PT := T#5S);
-                nState := 30;
-            ELSIF bWriteError THEN
-                bError := TRUE; nErrorCode := 911; nState := 99;
-            END_IF;
-
+            IF rTargetX_mm < 0.0 OR rTargetX_mm + rDeltaXSync_mm > 180.0 THEN bError := TRUE; nErrorCode := 501; nState := 99;
+            ELSIF rTargetY_mm < 0.0 OR rTargetY_mm > 170.0 THEN bError := TRUE; nErrorCode := 502; nState := 99;
+            ELSIF rZDown_mm > 52.0 OR rZSafe_mm > 52.0 OR rZDown_mm < rZSafe_mm THEN bError := TRUE; nErrorCode := 503; nState := 99;
         30:
             tonPoll(IN := TRUE, PT := T#20MS);
             IF tonPoll.Q THEN
                 tonPoll(IN := FALSE);
-                bReadM1001Req := TRUE;
+                nStatusIndex := 0;
+                bReadStatusReq := TRUE;
                 nState := 31;
             END_IF;
-            IF tonTimeout.Q OR bM104_Alarm THEN
-                bError := TRUE; nErrorCode := 920; nState := 99;
-            END_IF;
+            IF tonTimeout.Q OR bStatusM104 THEN bError := TRUE; nErrorCode := 920; nState := 99; END_IF;
 
         31:
             IF bReadDone THEN
-                IF bM1001_Value THEN
-                    tonTimeout(IN := FALSE);
-                    bCmdM1000 := FALSE;
-                    bWriteStart := TRUE;
-                    nState := 32;
+                CASE nStatusIndex OF
+                    0: bStatusM1001 := bStatusBit;
+                    1: bStatusM102 := bStatusBit;
+                    2: bStatusM103 := bStatusBit;
+                    3: bStatusM104 := bStatusBit;
+                END_CASE;
+
+                IF nStatusIndex < 3 THEN
+                    nStatusIndex := nStatusIndex + 1;
+                    bReadStatusReq := TRUE;
                 ELSE
-                    nState := 30;
+                    IF bStatusM1001 THEN
+                        tonTimeout(IN := FALSE);
+                        bCmdM1000 := FALSE;
+                        bWriteM1000Req := TRUE;
+                        nState := 32;
+                    ELSE
+                        nState := 30;
+                    END_IF;
                 END_IF;
             ELSIF bReadError THEN
                 nState := 30;
             END_IF;
 
-        32:
-            IF bWriteDone THEN
-                nState := 40;
-            ELSIF bWriteError THEN
-                bError := TRUE; nErrorCode := 912; nState := 99;
-            END_IF;
-
+        32: IF bWriteDone THEN nState := 40; ELSIF bWriteError THEN bError := TRUE; nErrorCode := 912; nState := 99; END_IF;
         40:
-            IF NOT bM1001_Done AND NOT bM103_InPosition THEN
-                IF nCurrentVertex < 4 THEN
-                    nCurrentVertex := nCurrentVertex + 1;
-                    nState := 10;
-                ELSE
-                    bBusy := FALSE; bDone := TRUE; nState := 0;
-                END_IF;
+            IF NOT bStatusM1001 AND NOT bStatusM103 THEN
+                IF nCurrentVertex < 4 THEN nCurrentVertex := nCurrentVertex + 1; nState := 10; ELSE bBusy := FALSE; bDone := TRUE; nState := 0; END_IF;
             END_IF;
-
         99:
-            bBusy := FALSE;
-            bCmdM1000 := FALSE;
-            IF NOT bStartCycle THEN nState := 0; END_IF;
+            bBusy := FALSE; bCmdM1000 := FALSE;
+            IF NOT bAbortCycle AND NOT bStartCycle THEN nState := 0; END_IF;
     END_CASE;
 END_IF;
 
-fbWrite(
-    stSession := stSession,
-    bExecute := bWriteCommand OR bWriteStart,
-    eDevice := SEL(bWriteStart, DEV_M, DEV_D),
-    nStartAddr := SEL(bWriteStart, 1000, 100),
-    nPoints := SEL(bWriteStart, 1, 15),
-    bBitAccess := bWriteStart,
-    pData := SEL(bWriteStart, ADR(bM1000_Value), ADR(stCommand)),
-    nDataSize := SEL(bWriteStart, SIZEOF(bM1000_Value), SIZEOF(stCommand)),
-    bDone => bWriteDone,
-    bError => bWriteError,
-    nErrorID => nCommError
-);
+bM1000_Value := bCmdM1000;
+IF bWriteM105Req THEN
+    eWriteDevice := DEV_M; nWriteAddress := 105; nWritePoints := 1; bWriteBitMode := TRUE; pWriteData := ADR(bM105_Value); nWriteDataSize := SIZEOF(bM105_Value);
+ELSIF bWriteM1000Req THEN
+    eWriteDevice := DEV_M; nWriteAddress := 1000; nWritePoints := 1; bWriteBitMode := TRUE; pWriteData := ADR(bM1000_Value); nWriteDataSize := SIZEOF(bM1000_Value);
+ELSIF bWriteCommandReq THEN
+    eWriteDevice := DEV_D; nWriteAddress := 100; nWritePoints := 15; bWriteBitMode := FALSE; pWriteData := ADR(stCommand); nWriteDataSize := SIZEOF(stCommand);
+END_IF;
 
-fbRead(
-    stSession := stSession,
-    bExecute := bReadM1001Req,
-    eDevice := DEV_M,
-    nStartAddr := 1001,
-    nPoints := 1,
-    bBitAccess := TRUE,
-    pData := ADR(bM1001_Value),
-    nDataSize := SIZEOF(bM1001_Value),
-    bDone => bReadDone,
-    bError => bReadError,
-    nErrorID => nCommError
-);
+fbWrite(stSession := stSession, bExecute := bWriteCommandReq OR bWriteM1000Req OR bWriteM105Req,
+    eDevice := eWriteDevice, nStartAddr := nWriteAddress, nPoints := nWritePoints,
+    bBitAccess := bWriteBitMode, pData := pWriteData, nDataSize := nWriteDataSize,
+    bDone => bWriteDone, bError => bWriteError, nErrorID => nCommError);
+
+fbRead(stSession := stSession, bExecute := bReadStatusReq, eDevice := DEV_M, nStartAddr := 1001 + nStatusIndex,
+    nPoints := 1, bBitAccess := TRUE, pData := ADR(bStatusBit), nDataSize := SIZEOF(bStatusBit),
+    bDone => bReadDone, bError => bReadError, nErrorID => nCommError);
+
+IF bReadDone THEN
+    bReadStatusReq := FALSE;
+END_IF;
 ]]></ST>
     </Implementation>
     <LineIds Name="FB_QD75CommandPublisher">

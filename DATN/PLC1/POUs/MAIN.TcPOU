@@ -9,8 +9,6 @@ VAR
     stMelsec            : ST_MelsecSession;
 
     fbMelsecConfig      : FB_MelsecTcpConfig;
-    fbMelsecWrite       : FB_MelsecWrite;
-    fbMelsecRead        : FB_MelsecRead;
 
     // Cấu hình mạng PLC-Q
     bTcpEnable          : BOOL := TRUE;
@@ -129,41 +127,6 @@ bPlcQError     := stMelsec.bError;
 nPlcQErrorID   := stMelsec.nErrorID;
 
 
-// ================================================================
-// 2. GENERIC WRITE: Ghi D100-D101 dạng DINT 32-bit
-// 1 DINT = 2 Word: D100 và D101
-// ================================================================
-fbMelsecWrite(
-    stSession   := stMelsec,
-    bExecute    := bWriteD100,
-    eDevice     := DEV_D,
-    nStartAddr  := 100,
-    nPoints     := 2,
-    bBitAccess  := FALSE,
-    pData       := ADR(nD100_Value32),
-    nDataSize   := SIZEOF(nD100_Value32),
-    bDone       => bWriteDone,
-    bError      => bWriteError,
-    nErrorID    => nWriteErrorID
-);
-
-
-// ================================================================
-// 3. GENERIC READ: Đọc D100-D101 dạng DINT 32-bit
-// ================================================================
-fbMelsecRead(
-    stSession   := stMelsec,
-    bExecute    := bReadD100,
-    eDevice     := DEV_D,
-    nStartAddr  := 100,
-    nPoints     := 2,
-    bBitAccess  := FALSE,
-    pData       := ADR(nD100_ReadBack),
-    nDataSize   := SIZEOF(nD100_ReadBack),
-    bDone       => bReadDone,
-    bError      => bReadError,
-    nErrorID    => nReadErrorID
-);
 
 
 // ================================================================
@@ -261,8 +224,7 @@ fbPublisher(
       <LineId Id="2315" Count="0" />
       <LineId Id="2361" Count="20" />
       <LineId Id="2360" Count="0" />
-      <LineId Id="2493" Count="32" />
-      <LineId Id="2492" Count="0" />
+      <LineId Id="2493" Count="26" />
     </LineIds>
   </POU>
 </TcPlcObject>
