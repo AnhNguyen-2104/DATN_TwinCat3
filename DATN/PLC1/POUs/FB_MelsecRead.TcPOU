@@ -115,7 +115,7 @@ IF fbTrigger.Q THEN
         aTx[17] := UDINT_TO_BYTE(SHR(nStartAddr, 16) AND 16#FF);
 
         // 1.11. Device Code (M=0x90, D=0xA8, ...)
-        aTx[18] := eDevice;
+        aTx[18] := TO_BYTE(eDevice);
 
         // 1.12. Number of Device Points (2 bytes: LSB -> MSB)
         aTx[19] := UINT_TO_BYTE(nPoints AND 16#FF);

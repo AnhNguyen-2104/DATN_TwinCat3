@@ -32,15 +32,18 @@ try {
     
     for ($i = 1; $i -le $errorItems.Count; $i++) {
         $item = $errorItems.Item($i)
-        if ($item.ErrorLevel -eq "vsBuildErrorLevelHigh") {
+        $level = "$($item.ErrorLevel)"
+        if ($level -like "*High*" -or $level -eq "3" -or $level -eq "1") {
             $errors++
             Write-Output "[ERROR] $($item.Description) ($($item.FileName):$($item.Line))"
-        } elseif ($item.ErrorLevel -eq "vsBuildErrorLevelMedium") {
+        } elseif ($level -like "*Medium*" -or $level -eq "2") {
             $warnings++
             Write-Output "[WARNING] $($item.Description) ($($item.FileName):$($item.Line))"
+        } else {
+            Write-Output "[INFO] $($item.Description) ($($item.FileName):$($item.Line))"
         }
     }
-    
+
     Write-Output "Build Result: ExitCode=$lastBuildInfo | Errors=$errors | Warnings=$warnings"
     if ($errors -gt 0 -or $lastBuildInfo -ne 0) {
         exit 1
