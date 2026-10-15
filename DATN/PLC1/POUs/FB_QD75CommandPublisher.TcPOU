@@ -409,7 +409,6 @@ fbWrite(
     bBitAccess := bWriteBitMode,
     pData      := pWriteData,
     nDataSize  := nWriteDataSize,
-    bError     => fbWrite.bError,
     nErrorID   => nCommError
 );
 
@@ -422,7 +421,6 @@ fbRead(
     bBitAccess := bReadBitMode,
     pData      := pReadData,
     nDataSize  := nReadDataSize,
-    bError     => fbRead.bError,
     nErrorID   => nCommError
 );
 ]]></ST>
