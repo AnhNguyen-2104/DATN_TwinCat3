@@ -150,10 +150,10 @@ ELSE
         31:
             IF bReadDone THEN
                 CASE nStatusIndex OF
-                    0: bStatusM1001 := bStatusBit;
-                    1: bStatusM102 := bStatusBit;
-                    2: bStatusM103 := bStatusBit;
-                    3: bStatusM104 := bStatusBit;
+                    0: bStatusM1001 := bStatusBit; // M1001
+                    1: bStatusM102  := bStatusBit; // M102
+                    2: bStatusM103  := bStatusBit; // M103
+                    3: bStatusM104  := bStatusBit; // M104
                 END_CASE;
 
                 IF nStatusIndex < 3 THEN
@@ -198,11 +198,27 @@ fbWrite(stSession := stSession, bExecute := bWriteCommandReq OR bWriteM1000Req O
     bBitAccess := bWriteBitMode, pData := pWriteData, nDataSize := nWriteDataSize,
     bDone => bWriteDone, bError => bWriteError, nErrorID => nCommError);
 
-    fbRead(stSession := stSession, bExecute := bReadStatusReq, eDevice := DEV_M,
-        nStartAddr := UDINT#1001 + INT_TO_UDINT(nStatusIndex),
-        nPoints := UINT#1, bBitAccess := TRUE,
-        pData := ADR(bStatusBit), nDataSize := SIZEOF(bStatusBit),
-        bDone => bReadDone, bError => bReadError, nErrorID => nCommError);
+    IF nStatusIndex = 0 THEN
+        fbRead(stSession := stSession, bExecute := bReadStatusReq, eDevice := DEV_M,
+            nStartAddr := 1001, nPoints := 1, bBitAccess := TRUE,
+            pData := ADR(bStatusBit), nDataSize := SIZEOF(bStatusBit),
+            bDone => bReadDone, bError => bReadError, nErrorID => nCommError);
+    ELSIF nStatusIndex = 1 THEN
+        fbRead(stSession := stSession, bExecute := bReadStatusReq, eDevice := DEV_M,
+            nStartAddr := 102, nPoints := 1, bBitAccess := TRUE,
+            pData := ADR(bStatusBit), nDataSize := SIZEOF(bStatusBit),
+            bDone => bReadDone, bError => bReadError, nErrorID => nCommError);
+    ELSIF nStatusIndex = 2 THEN
+        fbRead(stSession := stSession, bExecute := bReadStatusReq, eDevice := DEV_M,
+            nStartAddr := 103, nPoints := 1, bBitAccess := TRUE,
+            pData := ADR(bStatusBit), nDataSize := SIZEOF(bStatusBit),
+            bDone => bReadDone, bError => bReadError, nErrorID => nCommError);
+    ELSE
+        fbRead(stSession := stSession, bExecute := bReadStatusReq, eDevice := DEV_M,
+            nStartAddr := 104, nPoints := 1, bBitAccess := TRUE,
+            pData := ADR(bStatusBit), nDataSize := SIZEOF(bStatusBit),
+            bDone => bReadDone, bError => bReadError, nErrorID => nCommError);
+    END_IF;
 
 IF bReadDone THEN
     bReadStatusReq := FALSE;
