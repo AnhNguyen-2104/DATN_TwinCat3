@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
   <DUT Name="ST_QD75_Command" Id="{b8555c59-d4d4-468c-a89b-f3ba13a856e8}">
     <Declaration><![CDATA[TYPE ST_QD75_Command :
@@ -11,7 +11,6 @@ STRUCT
     DeltaX_Sync    : DINT; // D110..D111: Quãng đường trượt đồng tốc 60ms (0.1 um)
     Target_Z_Safe  : DINT; // D112..D113: Độ cao an toàn khi rút kim (0.1 um, 0.0mm = 0)
     Vertex_Index   : INT;  // D114: Thứ tự đỉnh đang làm (1..4)
-    Cmd_Start      : BOOL; // M1000: Kích chạy đỉnh đang nạp (TwinCAT -> PLC-Q)
 END_STRUCT
 END_TYPE]]></Declaration>
   </DUT>
