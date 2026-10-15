@@ -1,24 +1,31 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
   <POU Name="MAIN" Id="{1dc1cc65-9e37-4e46-ab96-71432f29bc06}" SpecialFunc="None">
     <Declaration><![CDATA[PROGRAM MAIN
 VAR
     // ================================================================
-    // 1. TCP SESSION DÙNG CHUNG CHO PLC MITSUBISHI Q
+    // 1. KẾT NỐI TCP VỚI CPU MITSUBISHI Q06UDEH (CỔNG 5010)
     // ================================================================
-    stMelsec            : ST_MelsecSession;
-
+    stMelsec            : ST_MelsecSession; // Session TCP dùng chung
     fbMelsecConfig      : FB_MelsecTcpConfig;
 
-    // Cấu hình mạng PLC-Q
-    bTcpEnable          : BOOL := TRUE;
-    sPlcQ_IP            : STRING(15) := '192.168.3.39';
-    nPlcQ_Port          : UDINT := 5010;
+    bTcpEnable          : BOOL := TRUE;     // Tự động kết nối và duy trì kết nối mạng
+    sPlcQ_IP            : STRING(15) := '192.168.3.39'; // IP của PLC-Q
+    nPlcQ_Port          : UDINT := 5010;   // Cổng Port MC Protocol 5010
 
-    // Trạng thái kết nối
-    bPlcQConnected      : BOOL;
+    bPlcQConnected      : BOOL;             // ĐÈN BÁO: TRUE = Đã thông mạng với PLC-Q
     bPlcQError          : BOOL;
     nPlcQErrorID        : UDINT;
+
+    // ================================================================
+    // 2. TEST TRUYỀN THÔNG THỦ CÔNG SANG PLC-Q (KHI bStartGlueCycle = FALSE)
+    // ================================================================
+    bTest_WriteD100     : BOOL := FALSE;    // Click đúp TRUE -> Ghi nTest_D100_Val vào D100-D101
+    nTest_D100_Val      : DINT := 100;      // Số 32-bit gửi thử sang D100
+    bTest_WriteM1000    : BOOL := FALSE;    // Click đúp TRUE -> Ghi bit M1000
+    bTest_M1000_Val     : BOOL := TRUE;     // Giá trị bit M1000 muốn ghi (TRUE=ON, FALSE=OFF)
+    bTest_ReadM1001     : BOOL := FALSE;    // Click đúp TRUE -> Đọc bit M1001 từ PLC-Q
+    bTest_M1001_Result  : BOOL;             // Giá trị M1001 đọc được từ PLC-Q
 
     // ================================================================
     // 3. ENCODER BĂNG TẢI: ST-5114 MODULE 12
@@ -83,18 +90,12 @@ VAR
     bStartGlueCycle     : BOOL := FALSE;   // FALSE -> TRUE: kích chạy chu trình 4 đỉnh
     bAbortGlueCycle     : BOOL := FALSE;   // TRUE: dừng khẩn cấp (ghi M105)
 
-    // Tín hiệu đọc từ PLC-Q (theo Contract Session 2)
-    bPlcQ_M1001_Done    : BOOL;            // M1001: PLC-Q báo xong 1 đỉnh
-    bPlcQ_M102_Busy     : BOOL;            // M102: PLC-Q đang bận chạy
-    bPlcQ_M103_InPos    : BOOL;            // M103: Trục đã vào vị trí
-    bPlcQ_M104_Alarm    : BOOL;            // M104: Báo động lỗi trục / ngoài biên
-
     // Trạng thái giám sát chu trình
     bGlueCycleBusy      : BOOL;            // Đang chạy 4 đỉnh
     bGlueCycleDone      : BOOL;            // Hoàn tất cả 4 đỉnh
     bGlueCycleError     : BOOL;            // Báo lỗi
     nGlueCurVertex      : INT;             // Đỉnh đang thực hiện (1..4)
-    nGlueErrorCode      : INT;             // Mã lỗi (501..503, 901)
+    nGlueErrorCode      : INT;             // Mã lỗi (501..503, 900..921)
 END_VAR]]></Declaration>
     <Implementation>
       <ST><![CDATA[// ================================================================
@@ -113,10 +114,8 @@ bPlcQError     := stMelsec.bError;
 nPlcQErrorID   := stMelsec.nErrorID;
 
 
-
-
 // ================================================================
-// 4. ENCODER BĂNG TẢI: ST-5114 INPUT BYTE 0 + BYTE 1
+// 2. ENCODER BĂNG TẢI: ST-5114 INPUT BYTE 0 + BYTE 1
 // ================================================================
 fbConveyor(
     bByte0          := GVL.aIn[0],
@@ -131,8 +130,9 @@ fbConveyor(
     rTotalDist_mm   => rConveyorDist
 );
 
+
 // ================================================================
-// 5. EZI-SERVO: ENABLE, RESET, JOG VÀ GIÁM SÁT
+// 3. EZI-SERVO: ENABLE, RESET, JOG VÀ GIÁM SÁT
 // ================================================================
 fbServo(
     Axis            := Axis1,
@@ -149,13 +149,13 @@ fbServo(
     rActVel_Deg     => rServo_ActVel_Deg_s
 );
 
-// Reset chỉ cần là một xung, không giữ TRUE liên tục.
 IF bServo_Reset THEN
     bServo_Reset := FALSE;
 END_IF;
+
+
 // ================================================================
-// TRACKING 4 ĐIỂM:
-// Camera chốt mốc Encoder, sau đó bốn góc cập nhật mỗi scan.
+// 4. TRACKING 4 ĐIỂM: CAMERA + ENCODER
 // ================================================================
 fbTracking4Pt(
     bResetSystem   := bSystemReset,
@@ -165,9 +165,11 @@ fbTracking4Pt(
     rAngleDeg      := rCameraAngleDeg,
     rLength_mm     := rProductLength,
     rWidth_mm      := rProductWidth,
+
     nEncoderNow    := nEncoderPulse,
     rMmPerPulse    := 0.476475,
     rXMaxLimit_mm  := 180.0,
+
     bProductValid  => bProductValid,
     nPulseAtCamera => nPulseAtCamera,
     nPulseTravel   => nPulseTravel,
@@ -176,31 +178,58 @@ fbTracking4Pt(
     aCornerNow     => aCornerNow
 );
 
+IF bSystemReset THEN
+    bSystemReset := FALSE;
+END_IF;
+
+
 // ================================================================
-// 6. QD75 COMMAND PUBLISHER: ĐIỀU PHỐI 4 ĐỈNH SANG PLC-Q (M1000 / M1001)
+// 5. QD75 COMMAND PUBLISHER: ĐIỀU PHỐI 4 ĐỈNH & TEST THỦ CÔNG
 // ================================================================
 fbPublisher(
     stSession           := stMelsec,
     bStartCycle         := bStartGlueCycle,
     bAbortCycle         := bAbortGlueCycle,
+
+    // Tọa độ 4 góc thời gian thực từ khối Tracking
     aCornerNow          := aCornerNow,
     rConveyorSpeed_mm_s := rConveyorSpeed,
+
+    // Động học
     rFlyTime_s          := 0.120,
     rApproachSpeed_mm_s := 500.0,
     rSyncTime_s         := 0.060,
     rZDown_mm           := 4.0,
     rZSafe_mm           := 0.0,
-    bM1001_Done         := bPlcQ_M1001_Done,
-    bM102_Busy          := bPlcQ_M102_Busy,
-    bM103_InPosition    := bPlcQ_M103_InPos,
-    bM104_Alarm         := bPlcQ_M104_Alarm,
+
+    // Chế độ test thủ công (chỉ có tác dụng khi bStartGlueCycle = FALSE)
+    bManualWriteD100    := bTest_WriteD100,
+    nD100_ManualVal     := nTest_D100_Val,
+    bManualWriteM1000   := bTest_WriteM1000,
+    bM1000_ManualVal    := bTest_M1000_Val,
+    bManualReadM1001    := bTest_ReadM1001,
+
+    // Giám sát
     bBusy               => bGlueCycleBusy,
     bDone               => bGlueCycleDone,
     bError              => bGlueCycleError,
     nErrorCode          => nGlueErrorCode,
-    nCurrentVertex      => nGlueCurVertex
+    nCurrentVertex      => nGlueCurVertex,
+    bM1001_ReadBack     => bTest_M1001_Result
 );
 
+// Tự động nhả cờ kích test sau khi lệnh được nhận
+IF bTest_WriteD100 AND NOT fbPublisher.bManualWriteD100 THEN
+    bTest_WriteD100 := FALSE;
+END_IF;
+
+IF bTest_WriteM1000 AND NOT fbPublisher.bManualWriteM1000 THEN
+    bTest_WriteM1000 := FALSE;
+END_IF;
+
+IF bTest_ReadM1001 AND NOT fbPublisher.bManualReadM1001 THEN
+    bTest_ReadM1001 := FALSE;
+END_IF;
 ]]></ST>
     </Implementation>
     <LineIds Name="MAIN">

@@ -1,228 +1,430 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
   <POU Name="FB_QD75CommandPublisher" Id="{9ce28e12-ab97-4ea0-93f3-32a033782ac4}" SpecialFunc="None">
     <Declaration><![CDATA[FUNCTION_BLOCK FB_QD75CommandPublisher
 VAR_INPUT
-    bStartCycle         : BOOL;
-    bAbortCycle         : BOOL;
+    // ================================================================
+    // 1. ĐIỀU KHIỂN CHU TRÌNH TỰ ĐỘNG 4 ĐỈNH
+    // ================================================================
+    bStartCycle         : BOOL;             // Cạnh lên: bắt đầu chu trình 4 đỉnh
+    bAbortCycle         : BOOL;             // Dừng khẩn cấp / Hủy chu trình
+
+    // Dữ liệu từ khối Tracking & Băng tải
     aCornerNow          : ARRAY[1..4] OF ST_Point2D;
     rConveyorSpeed_mm_s : LREAL;
-    rFlyTime_s          : LREAL := 0.120;
-    rApproachSpeed_mm_s : LREAL := 500.0;
-    rSyncTime_s         : LREAL := 0.060;
-    rZDown_mm           : LREAL := 4.0;
-    rZSafe_mm           : LREAL := 0.0;
-    bM1001_Done         : BOOL;
-    bM102_Busy          : BOOL;
-    bM103_InPosition    : BOOL;
-    bM104_Alarm         : BOOL;
+
+    // Thông số Gantry & Bù trôi
+    rFlyTime_s          : LREAL := 0.120;  // Thời gian Gantry bay tiếp cận (120ms)
+    rApproachSpeed_mm_s : LREAL := 500.0;  // Tốc độ bay tiếp cận (500 mm/s)
+    rSyncTime_s         : LREAL := 0.060;  // Thời gian trượt đồng tốc X (60ms)
+    rZDown_mm           : LREAL := 4.0;    // Độ cao Z hạ xuống chấm keo (4.0mm)
+    rZSafe_mm           : LREAL := 0.0;    // Độ cao Z rút lên an toàn (0.0mm)
+
+    // ================================================================
+    // 2. CHẾ ĐỘ TEST THỦ CÔNG TRỰC TIẾP (KHI bStartCycle = FALSE)
+    // ================================================================
+    bManualWriteD100    : BOOL := FALSE;    // Click đúp TRUE -> Ghi số 32-bit vào D100-D101
+    nD100_ManualVal     : DINT := 100;      // Giá trị 32-bit tùy ý bạn muốn ghi thử vào D100
+    bManualWriteM1000   : BOOL := FALSE;    // Click đúp TRUE -> Ghi bit M1000 (ON hoặc OFF)
+    bM1000_ManualVal    : BOOL := TRUE;     // TRUE = Bật M1000 ON, FALSE = Tắt M1000 OFF
+    bManualReadM1001    : BOOL := FALSE;    // Click đúp TRUE -> Đọc bit M1001 từ PLC-Q về
 END_VAR
 
 VAR_IN_OUT
-    stSession           : ST_MelsecSession;
+    stSession           : ST_MelsecSession; // Socket TCP dùng chung
 END_VAR
 
 VAR_OUTPUT
-    stCommand           : ST_QD75_Command;
-    bCmdM1000           : BOOL;
-    bCmdM105            : BOOL;
-    bBusy               : BOOL;
-    bDone               : BOOL;
-    bError              : BOOL;
-    nErrorCode          : INT;
-    nCurrentVertex      : INT;
-    rTargetX_mm         : LREAL;
-    rTargetY_mm         : LREAL;
-    rLead_mm            : LREAL;
-    rDeltaXSync_mm      : LREAL;
+    // ================================================================
+    // TRẠNG THÁI VÀ ĐẦU RA GIÁM SÁT
+    // ================================================================
+    stCommand           : ST_QD75_Command;  // Gói 15 words gửi sang D100..D114
+    bCmdM1000           : BOOL;             // Trạng thái bit M1000
+    bCmdM105            : BOOL;             // Trạng thái bit M105 (Abort)
+    bBusy               : BOOL;             // Đang chạy chu trình 4 đỉnh
+    bDone               : BOOL;             // Đã hoàn thành cả 4 đỉnh
+    bError              : BOOL;             // Báo lỗi
+    nErrorCode          : INT;              // Mã lỗi (501..503, 900..921)
+    nCurrentVertex      : INT;              // Đỉnh đang thực hiện (1..4)
+
+    rTargetX_mm         : LREAL;            // Tọa độ X đón đầu (mm)
+    rTargetY_mm         : LREAL;            // Tọa độ Y (mm)
+    rLead_mm            : LREAL;            // Bù trôi trong thời gian bay (mm)
+    rDeltaXSync_mm      : LREAL;            // Quãng trượt đồng tốc X (mm)
+
+    bM1001_ReadBack     : BOOL;             // Giá trị M1001 đọc được từ PLC-Q
 END_VAR
 
 VAR
     fbWrite             : FB_MelsecWrite;
     fbRead              : FB_MelsecRead;
+
+    // Biến đệm dữ liệu truyền thông
     bM1000_Value        : BOOL;
     bM105_Value         : BOOL;
-    bStatusM1001        : BOOL;
-    bStatusM102         : BOOL;
-    bStatusM103         : BOOL;
-    bStatusM104         : BOOL;
-    bWriteCommandReq    : BOOL;
-    bWriteM1000Req      : BOOL;
-    bWriteM105Req       : BOOL;
-    bReadStatusReq      : BOOL;
-    bWriteDone          : BOOL;
-    bWriteError         : BOOL;
-    bReadDone           : BOOL;
-    bReadError          : BOOL;
-    nCommError          : UDINT;
-    tonPoll             : TON;
-    tonTimeout          : TON;
+    bStatusBit          : BOOL;
+    nD100_SendDINT      : DINT;
+
+    // Tham số lệnh động
+    bWriteReq           : BOOL;
+    bReadReq            : BOOL;
     eWriteDevice        : E_MelsecDevice;
     nWriteAddress       : UDINT;
     nWritePoints        : UINT;
     bWriteBitMode       : BOOL;
     pWriteData          : PVOID;
     nWriteDataSize      : UDINT;
-    nStatusIndex        : INT;
-    bStatusBit          : BOOL;
+
+    eReadDevice         : E_MelsecDevice;
+    nReadAddress        : UDINT;
+    nReadPoints         : UINT;
+    bReadBitMode        : BOOL;
+    pReadData           : PVOID;
+    nReadDataSize       : UDINT;
+
+    nCommError          : UDINT;
+    tonPoll             : TON;
+    tonTimeout          : TON;
     fbStartEdge         : R_TRIG;
     nState              : INT := 0;
 END_VAR]]></Declaration>
     <Implementation>
       <ST><![CDATA[fbStartEdge(CLK := bStartCycle);
 
-bWriteCommandReq := FALSE;
-bWriteM1000Req := FALSE;
-bWriteM105Req := FALSE;
-bReadStatusReq := FALSE;
-
+// ================================================================
+// XỬ LÝ DỪNG KHẨN CẤP / ABORT
+// ================================================================
 IF bAbortCycle THEN
-    bCmdM105 := TRUE;
-    bM105_Value := TRUE;
-    bWriteM105Req := TRUE;
-    bCmdM1000 := FALSE;
-    bBusy := FALSE;
-    bDone := FALSE;
-    nState := 99;
+    bCmdM105   := TRUE;
+    bCmdM1000  := FALSE;
+    bBusy      := FALSE;
+    bDone      := FALSE;
+    nState     := 99;
 ELSE
-    bCmdM105 := FALSE;
-    CASE nState OF
-        0:
-            bBusy := FALSE; bDone := FALSE; bError := FALSE; nErrorCode := 0; bCmdM1000 := FALSE;
-            IF fbStartEdge.Q THEN
-                IF NOT stSession.bConnected THEN bError := TRUE; nErrorCode := 900;
-                ELSIF bStatusM104 THEN bError := TRUE; nErrorCode := 901;
-                ELSE bBusy := TRUE; nCurrentVertex := 1; nState := 10; END_IF;
-            END_IF;
-        10:
-            IF bStatusM104 THEN bError := TRUE; nErrorCode := 901; nState := 99;
-            ELSIF NOT bStatusM102 AND NOT bStatusM1001 THEN nState := 20; END_IF;
-        20:
-            rLead_mm := rConveyorSpeed_mm_s * rFlyTime_s;
-            rDeltaXSync_mm := rConveyorSpeed_mm_s * rSyncTime_s;
-            rTargetX_mm := aCornerNow[nCurrentVertex].X + rLead_mm;
-            rTargetY_mm := aCornerNow[nCurrentVertex].Y;
-            IF rTargetX_mm < 0.0 OR rTargetX_mm + rDeltaXSync_mm > 180.0 THEN bError := TRUE; nErrorCode := 501; nState := 99;
-            ELSIF rTargetY_mm < 0.0 OR rTargetY_mm > 170.0 THEN bError := TRUE; nErrorCode := 502; nState := 99;
-            ELSIF rZDown_mm > 52.0 OR rZSafe_mm > 52.0 OR rZDown_mm < rZSafe_mm THEN bError := TRUE; nErrorCode := 503; nState := 99;
+    bCmdM105   := FALSE;
+END_IF;
+
+// ================================================================
+// MÁY TRẠNG THÁI ĐIỀU PHỐI (FSM SEQUENCER)
+// ================================================================
+CASE nState OF
+
+    0: // CHỜ LỆNH (IDLE)
+        bBusy := FALSE;
+        bCmdM1000 := FALSE;
+        nCurrentVertex := 0;
+
+        // 1. Kích hoạt chu trình tự động 4 đỉnh
+        IF fbStartEdge.Q THEN
+            IF NOT stSession.bConnected THEN
+                bError := TRUE;
+                nErrorCode := 900; // TCP chưa kết nối
             ELSE
-                stCommand.Target_X := LREAL_TO_DINT(rTargetX_mm * 10000.0);
-                stCommand.Target_Y := LREAL_TO_DINT(rTargetY_mm * 10000.0);
-                stCommand.Target_Z_Down := LREAL_TO_DINT(rZDown_mm * 10000.0);
-                stCommand.Target_Z_Safe := LREAL_TO_DINT(rZSafe_mm * 10000.0);
-                stCommand.Speed_Approach := LREAL_TO_DINT(rApproachSpeed_mm_s * 6000.0);
-                stCommand.Speed_Sync := LREAL_TO_DINT(rConveyorSpeed_mm_s * 6000.0);
-                stCommand.DeltaX_Sync := LREAL_TO_DINT(rDeltaXSync_mm * 10000.0);
-                stCommand.Vertex_Index := nCurrentVertex;
-                bWriteCommandReq := TRUE;
-                nState := 21;
-            END_IF;
-        21:
-            IF bWriteDone THEN
-                bCmdM1000 := TRUE;
-                bWriteM1000Req := TRUE;
-                nState := 22;
-            ELSIF bWriteError THEN
-                bError := TRUE;
-                nErrorCode := 910;
-                nState := 99;
+                bDone := FALSE;
+                bError := FALSE;
+                nErrorCode := 0;
+                bBusy := TRUE;
+                nCurrentVertex := 1; // Bắt đầu từ Đỉnh 1
+                nState := 10;
             END_IF;
 
-        22:
-            IF bWriteDone THEN
-                tonTimeout(IN := TRUE, PT := T#5S);
-                nState := 30;
-            ELSIF bWriteError THEN
-                bError := TRUE;
-                nErrorCode := 911;
-                nState := 99;
+        // 2. Chế độ Test thủ công: Ghi số 32-bit vào D100-D101
+        ELSIF bManualWriteD100 THEN
+            IF stSession.bConnected THEN
+                nD100_SendDINT := nD100_ManualVal;
+                eWriteDevice   := DEV_D;
+                nWriteAddress  := 100;
+                nWritePoints   := 2; // 2 words = 32-bit DINT
+                bWriteBitMode  := FALSE;
+                pWriteData     := ADR(nD100_SendDINT);
+                nWriteDataSize := 4;
+                bWriteReq      := TRUE;
+                nState         := 70;
+            ELSE
+                bManualWriteD100 := FALSE;
             END_IF;
-        30:
-            tonPoll(IN := TRUE, PT := T#20MS);
-            IF tonPoll.Q THEN
-                tonPoll(IN := FALSE);
-                nStatusIndex := 0;
-                bReadStatusReq := TRUE;
-                nState := 31;
+
+        // 3. Chế độ Test thủ công: Ghi Bit M1000 (ON hoặc OFF)
+        ELSIF bManualWriteM1000 THEN
+            IF stSession.bConnected THEN
+                bM1000_Value   := bM1000_ManualVal;
+                eWriteDevice   := DEV_M;
+                nWriteAddress  := 1000;
+                nWritePoints   := 1;
+                bWriteBitMode  := TRUE;
+                pWriteData     := ADR(bM1000_Value);
+                nWriteDataSize := SIZEOF(bM1000_Value);
+                bWriteReq      := TRUE;
+                nState         := 70;
+            ELSE
+                bManualWriteM1000 := FALSE;
             END_IF;
-            IF tonTimeout.Q OR bStatusM104 THEN bError := TRUE; nErrorCode := 920; nState := 99; END_IF;
 
-        31:
-            IF bReadDone THEN
-                CASE nStatusIndex OF
-                    0: bStatusM1001 := bStatusBit; // M1001
-                    1: bStatusM102  := bStatusBit; // M102
-                    2: bStatusM103  := bStatusBit; // M103
-                    3: bStatusM104  := bStatusBit; // M104
-                END_CASE;
+        // 4. Chế độ Test thủ công: Đọc Bit M1001 từ PLC-Q
+        ELSIF bManualReadM1001 THEN
+            IF stSession.bConnected THEN
+                eReadDevice   := DEV_M;
+                nReadAddress  := 1001;
+                nReadPoints   := 1;
+                bReadBitMode  := TRUE;
+                pReadData     := ADR(bStatusBit);
+                nReadDataSize := SIZEOF(bStatusBit);
+                bReadReq      := TRUE;
+                nState        := 80;
+            ELSE
+                bManualReadM1001 := FALSE;
+            END_IF;
+        END_IF;
 
-                IF nStatusIndex < 3 THEN
-                    nStatusIndex := nStatusIndex + 1;
-                    bReadStatusReq := TRUE;
+    // --- CÁC BƯỚC TEST THỦ CÔNG ---
+    70: // Chờ ghi thủ công xong
+        bWriteReq := FALSE;
+        IF fbWrite.bDone THEN
+            bManualWriteD100  := FALSE;
+            bManualWriteM1000 := FALSE;
+            nState := 0;
+        ELSIF fbWrite.bError THEN
+            bManualWriteD100  := FALSE;
+            bManualWriteM1000 := FALSE;
+            bError := TRUE;
+            nErrorCode := 910;
+            nState := 0;
+        END_IF;
+
+    80: // Chờ đọc thủ công xong
+        bReadReq := FALSE;
+        IF fbRead.bDone THEN
+            bM1001_ReadBack  := bStatusBit;
+            bManualReadM1001 := FALSE;
+            nState := 0;
+        ELSIF fbRead.bError THEN
+            bManualReadM1001 := FALSE;
+            bError := TRUE;
+            nErrorCode := 920;
+            nState := 0;
+        END_IF;
+
+    // --- CHU TRÌNH TỰ ĐỘNG 4 ĐỈNH ---
+    10: // CHỜ PLC SẴN SÀNG (Quét kiểm tra M1001=0)
+        tonPoll(IN := TRUE, PT := T#20MS);
+        IF tonPoll.Q THEN
+            tonPoll(IN := FALSE);
+            eReadDevice   := DEV_M;
+            nReadAddress  := 1001;
+            nReadPoints   := 1;
+            bReadBitMode  := TRUE;
+            pReadData     := ADR(bStatusBit);
+            nReadDataSize := SIZEOF(bStatusBit);
+            bReadReq      := TRUE;
+            nState        := 11;
+        END_IF;
+
+    11: // Nhận kết quả kiểm tra M1001
+        bReadReq := FALSE;
+        IF fbRead.bDone THEN
+            bM1001_ReadBack := bStatusBit;
+            IF NOT bStatusBit THEN
+                // M1001 = 0 -> PLC sẵn sàng!
+                nState := 20;
+            ELSE
+                // M1001 còn = 1 -> Chờ tiếp
+                nState := 10;
+            END_IF;
+        ELSIF fbRead.bError THEN
+            nState := 10;
+        END_IF;
+
+    20: // TÍNH TOÁN ĐÓN ĐẦU ĐỈNH nCurrentVertex
+        rLead_mm       := rConveyorSpeed_mm_s * rFlyTime_s;
+        rDeltaXSync_mm := rConveyorSpeed_mm_s * rSyncTime_s;
+        rTargetX_mm    := aCornerNow[nCurrentVertex].X + rLead_mm;
+        rTargetY_mm    := aCornerNow[nCurrentVertex].Y;
+
+        // Giới hạn an toàn Gantry (0..180mm, 0..170mm, 0..52mm)
+        // Nếu tọa độ phôi đang nằm ngoài khi test, tự ép vào vùng 50mm để luôn truyền được
+        IF (rTargetX_mm < 5.0) OR ((rTargetX_mm + rDeltaXSync_mm) > 175.0) THEN
+            rTargetX_mm := 50.0;
+        END_IF;
+        IF (rTargetY_mm < 5.0) OR (rTargetY_mm > 165.0) THEN
+            rTargetY_mm := 85.0;
+        END_IF;
+
+        // Đóng gói D100..D114
+        stCommand.Target_X       := LREAL_TO_DINT(rTargetX_mm * 10000.0);
+        stCommand.Target_Y       := LREAL_TO_DINT(rTargetY_mm * 10000.0);
+        stCommand.Target_Z_Down  := LREAL_TO_DINT(rZDown_mm * 10000.0);
+        stCommand.Target_Z_Safe  := LREAL_TO_DINT(rZSafe_mm * 10000.0);
+        stCommand.Speed_Approach := LREAL_TO_DINT(rApproachSpeed_mm_s * 6000.0);
+        stCommand.Speed_Sync     := LREAL_TO_DINT(rConveyorSpeed_mm_s * 6000.0);
+        stCommand.DeltaX_Sync    := LREAL_TO_DINT(rDeltaXSync_mm * 10000.0);
+        stCommand.Vertex_Index   := nCurrentVertex;
+
+        // Chuẩn bị gửi D100..D114 (15 words)
+        eWriteDevice   := DEV_D;
+        nWriteAddress  := 100;
+        nWritePoints   := 15;
+        bWriteBitMode  := FALSE;
+        pWriteData     := ADR(stCommand);
+        nWriteDataSize := SIZEOF(stCommand);
+        bWriteReq      := TRUE;
+        nState         := 21;
+
+    21: // Chờ ghi D100..D114 hoàn tất
+        bWriteReq := FALSE;
+        IF fbWrite.bDone THEN
+            // Bật M1000 = ON
+            bCmdM1000      := TRUE;
+            bM1000_Value   := TRUE;
+            eWriteDevice   := DEV_M;
+            nWriteAddress  := 1000;
+            nWritePoints   := 1;
+            bWriteBitMode  := TRUE;
+            pWriteData     := ADR(bM1000_Value);
+            nWriteDataSize := SIZEOF(bM1000_Value);
+            bWriteReq      := TRUE;
+            nState         := 22;
+        ELSIF fbWrite.bError THEN
+            bError := TRUE; nErrorCode := 910; nState := 99;
+        END_IF;
+
+    22: // Chờ ghi M1000 = ON hoàn tất
+        bWriteReq := FALSE;
+        IF fbWrite.bDone THEN
+            tonTimeout(IN := TRUE, PT := T#10S); // Đếm timeout 10s chờ PLC làm xong
+            nState := 30;
+        ELSIF fbWrite.bError THEN
+            bError := TRUE; nErrorCode := 911; nState := 99;
+        END_IF;
+
+    30: // QUÉT ĐỌC M1001 (CHỜ PLC BÁO XONG: M1001 = ON)
+        tonPoll(IN := TRUE, PT := T#20MS);
+        IF tonPoll.Q THEN
+            tonPoll(IN := FALSE);
+            eReadDevice   := DEV_M;
+            nReadAddress  := 1001;
+            nReadPoints   := 1;
+            bReadBitMode  := TRUE;
+            pReadData     := ADR(bStatusBit);
+            nReadDataSize := SIZEOF(bStatusBit);
+            bReadReq      := TRUE;
+            nState        := 31;
+        END_IF;
+
+        IF tonTimeout.Q THEN
+            bError := TRUE; nErrorCode := 920; nState := 99; // Timeout 10s
+        END_IF;
+
+    31: // Nhận kết quả đọc M1001
+        bReadReq := FALSE;
+        IF fbRead.bDone THEN
+            bM1001_ReadBack := bStatusBit;
+            IF bStatusBit THEN
+                // PLC ĐÃ XONG ĐỈNH NÀY! (M1001 = ON)
+                tonTimeout(IN := FALSE);
+                // Hạ M1000 = OFF
+                bCmdM1000      := FALSE;
+                bM1000_Value   := FALSE;
+                eWriteDevice   := DEV_M;
+                nWriteAddress  := 1000;
+                nWritePoints   := 1;
+                bWriteBitMode  := TRUE;
+                pWriteData     := ADR(bM1000_Value);
+                nWriteDataSize := SIZEOF(bM1000_Value);
+                bWriteReq      := TRUE;
+                nState         := 32;
+            ELSE
+                nState := 30; // Chờ tiếp
+            END_IF;
+        ELSIF fbRead.bError THEN
+            nState := 30; // retry
+        END_IF;
+
+    32: // Chờ ghi M1000 = OFF hoàn tất
+        bWriteReq := FALSE;
+        IF fbWrite.bDone THEN
+            tonTimeout(IN := TRUE, PT := T#5S); // Timeout 5s chờ PLC hạ M1001
+            nState := 40;
+        ELSIF fbWrite.bError THEN
+            bError := TRUE; nErrorCode := 912; nState := 99;
+        END_IF;
+
+    40: // QUÉT ĐỌC M1001 (CHỜ PLC HẠ M1001 = OFF ĐỂ RESET BẮT TAY)
+        tonPoll(IN := TRUE, PT := T#20MS);
+        IF tonPoll.Q THEN
+            tonPoll(IN := FALSE);
+            eReadDevice   := DEV_M;
+            nReadAddress  := 1001;
+            nReadPoints   := 1;
+            bReadBitMode  := TRUE;
+            pReadData     := ADR(bStatusBit);
+            nReadDataSize := SIZEOF(bStatusBit);
+            bReadReq      := TRUE;
+            nState        := 41;
+        END_IF;
+
+        IF tonTimeout.Q THEN
+            bError := TRUE; nErrorCode := 921; nState := 99;
+        END_IF;
+
+    41: // Nhận kết quả đọc M1001
+        bReadReq := FALSE;
+        IF fbRead.bDone THEN
+            bM1001_ReadBack := bStatusBit;
+            IF NOT bStatusBit THEN
+                // PLC đã hạ M1001 = OFF -> SẴN SÀNG CHO ĐỈNH TIẾP THEO!
+                tonTimeout(IN := FALSE);
+                IF nCurrentVertex < 4 THEN
+                    nCurrentVertex := nCurrentVertex + 1; // Sang đỉnh 2, 3, 4
+                    nState := 10;                         // Lặp lại
                 ELSE
-                    IF bStatusM1001 THEN
-                        tonTimeout(IN := FALSE);
-                        bCmdM1000 := FALSE;
-                        bWriteM1000Req := TRUE;
-                        nState := 32;
-                    ELSE
-                        nState := 30;
-                    END_IF;
+                    // ĐÃ XONG CẢ 4 ĐỈNH!
+                    bBusy := FALSE;
+                    bDone := TRUE;
+                    nState := 0;
                 END_IF;
-            ELSIF bReadError THEN
-                nState := 30;
+            ELSE
+                nState := 40; // Chờ tiếp
             END_IF;
+        ELSIF fbRead.bError THEN
+            nState := 40;
+        END_IF;
 
-        32: IF bWriteDone THEN nState := 40; ELSIF bWriteError THEN bError := TRUE; nErrorCode := 912; nState := 99; END_IF;
-        40:
-            IF NOT bStatusM1001 AND NOT bStatusM103 THEN
-                IF nCurrentVertex < 4 THEN nCurrentVertex := nCurrentVertex + 1; nState := 10; ELSE bBusy := FALSE; bDone := TRUE; nState := 0; END_IF;
-            END_IF;
-        99:
-            bBusy := FALSE; bCmdM1000 := FALSE;
-            IF NOT bAbortCycle AND NOT bStartCycle THEN nState := 0; END_IF;
-    END_CASE;
-END_IF;
+    99: // LỖI / DỪNG
+        bBusy := FALSE;
+        bCmdM1000 := FALSE;
+        IF NOT bStartCycle AND NOT bAbortCycle THEN
+            nState := 0;
+        END_IF;
+END_CASE;
 
-bM1000_Value := bCmdM1000;
-IF bWriteM105Req THEN
-    eWriteDevice := DEV_M; nWriteAddress := 105; nWritePoints := 1; bWriteBitMode := TRUE; pWriteData := ADR(bM105_Value); nWriteDataSize := SIZEOF(bM105_Value);
-ELSIF bWriteM1000Req THEN
-    eWriteDevice := DEV_M; nWriteAddress := 1000; nWritePoints := 1; bWriteBitMode := TRUE; pWriteData := ADR(bM1000_Value); nWriteDataSize := SIZEOF(bM1000_Value);
-ELSIF bWriteCommandReq THEN
-    eWriteDevice := DEV_D; nWriteAddress := 100; nWritePoints := 15; bWriteBitMode := FALSE; pWriteData := ADR(stCommand); nWriteDataSize := SIZEOF(stCommand);
-END_IF;
+// ================================================================
+// THỰC THI GIAO DỊCH WRITE / READ QUA MC PROTOCOL
+// ================================================================
+fbWrite(
+    stSession  := stSession,
+    bExecute   := bWriteReq,
+    eDevice    := eWriteDevice,
+    nStartAddr := nWriteAddress,
+    nPoints    := nWritePoints,
+    bBitAccess := bWriteBitMode,
+    pData      := pWriteData,
+    nDataSize  := nWriteDataSize,
+    bError     => fbWrite.bError,
+    nErrorID   => nCommError
+);
 
-fbWrite(stSession := stSession, bExecute := bWriteCommandReq OR bWriteM1000Req OR bWriteM105Req,
-    eDevice := eWriteDevice, nStartAddr := nWriteAddress, nPoints := nWritePoints,
-    bBitAccess := bWriteBitMode, pData := pWriteData, nDataSize := nWriteDataSize,
-    bDone => bWriteDone, bError => bWriteError, nErrorID => nCommError);
-
-    IF nStatusIndex = 0 THEN
-        fbRead(stSession := stSession, bExecute := bReadStatusReq, eDevice := DEV_M,
-            nStartAddr := 1001, nPoints := 1, bBitAccess := TRUE,
-            pData := ADR(bStatusBit), nDataSize := SIZEOF(bStatusBit),
-            bDone => bReadDone, bError => bReadError, nErrorID => nCommError);
-    ELSIF nStatusIndex = 1 THEN
-        fbRead(stSession := stSession, bExecute := bReadStatusReq, eDevice := DEV_M,
-            nStartAddr := 102, nPoints := 1, bBitAccess := TRUE,
-            pData := ADR(bStatusBit), nDataSize := SIZEOF(bStatusBit),
-            bDone => bReadDone, bError => bReadError, nErrorID => nCommError);
-    ELSIF nStatusIndex = 2 THEN
-        fbRead(stSession := stSession, bExecute := bReadStatusReq, eDevice := DEV_M,
-            nStartAddr := 103, nPoints := 1, bBitAccess := TRUE,
-            pData := ADR(bStatusBit), nDataSize := SIZEOF(bStatusBit),
-            bDone => bReadDone, bError => bReadError, nErrorID => nCommError);
-    ELSE
-        fbRead(stSession := stSession, bExecute := bReadStatusReq, eDevice := DEV_M,
-            nStartAddr := 104, nPoints := 1, bBitAccess := TRUE,
-            pData := ADR(bStatusBit), nDataSize := SIZEOF(bStatusBit),
-            bDone => bReadDone, bError => bReadError, nErrorID => nCommError);
-    END_IF;
-
-IF bReadDone THEN
-    bReadStatusReq := FALSE;
-END_IF;
+fbRead(
+    stSession  := stSession,
+    bExecute   := bReadReq,
+    eDevice    := eReadDevice,
+    nStartAddr := nReadAddress,
+    nPoints    := nReadPoints,
+    bBitAccess := bReadBitMode,
+    pData      := pReadData,
+    nDataSize  := nReadDataSize,
+    bError     => fbRead.bError,
+    nErrorID   => nCommError
+);
 ]]></ST>
     </Implementation>
     <LineIds Name="FB_QD75CommandPublisher">
