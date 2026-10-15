@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
+  <DUT Name="ST_QD75_Feedback" Id="{ac3c3b41-af2c-41cb-9886-dfca3f826c6d}">
+    <Declaration><![CDATA[TYPE ST_QD75_Feedback :
+STRUCT
+    Ack_Done    : BOOL; // M101: PLC-Q báo đã hạ, đồng tốc bắn keo 30ms và nhấc Z xong
+    Robot_Busy  : BOOL; // M102: Robot Gantry đang chuyển động
+    In_Position : BOOL; // M103: Trục đã vào vùng đích (cờ Md.31)
+    Robot_Alarm : BOOL; // M104: Module QD75D4 hoặc Driver Servo báo lỗi
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

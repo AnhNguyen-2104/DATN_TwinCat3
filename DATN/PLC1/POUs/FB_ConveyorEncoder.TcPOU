@@ -1,0 +1,75 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
+  <POU Name="FB_ConveyorEncoder" Id="{440bead7-93b3-4398-9eef-b53f7eb81492}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_ConveyorEncoder
+VAR_INPUT
+    bByte0          : BYTE;             // GVL.aIn[0]
+    bByte1          : BYTE;             // GVL.aIn[1]
+    rK_mm           : LREAL := 0.476475;// mm / xung (D=54.6mm, 360 xung)
+    rCycleTime      : LREAL := 0.01;    // 10ms
+END_VAR
+VAR_OUTPUT
+    nRawPulse       : UINT;             // Xung tức thời
+    nDeltaPulse     : INT;              // Lệch xung mỗi 10ms
+    rSpeed_mm_s     : LREAL;            // VẬN TỐC LỌC MƯỢT (mm/s)
+    rSpeed_m_min    : LREAL;            // Vận tốc hiển thị (m/phút)
+    rTotalDist_mm   : LREAL;            // TỔNG QUÃNG ĐƯỜNG (mm)
+END_VAR
+VAR
+    nPrev           : UINT;
+    bInit           : BOOL := TRUE;
+    // Bộ lọc trượt 20 chu kỳ (200ms) để triệt tiêu hoàn toàn rung lắc
+    aDeltaBuf       : ARRAY[0..19] OF INT;
+    nBufIdx         : INT := 0;
+    nSumDelta       : INT;
+    nIdx            : INT;
+    rSpeed_Avg_Raw  : LREAL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// 1. Ghép 2 byte thành số xung 16-bit
+nRawPulse := BYTE_TO_UINT(bByte1) * 256 + BYTE_TO_UINT(bByte0);
+
+IF bInit THEN
+    nPrev := nRawPulse;
+    bInit := FALSE;
+END_IF
+
+// 2. Tính số xung lệch chu kỳ 10ms (chống tràn số)
+nDeltaPulse := TO_INT(TO_DINT(nRawPulse) - TO_DINT(nPrev));
+nPrev       := nRawPulse;
+
+// 3. Bộ lọc trung bình trượt 20 chu kỳ (200ms)
+aDeltaBuf[nBufIdx] := nDeltaPulse;
+nBufIdx := (nBufIdx + 1) MOD 20;
+
+nSumDelta := 0;
+FOR nIdx := 0 TO 19 DO
+    nSumDelta := nSumDelta + aDeltaBuf[nIdx];
+END_FOR;
+
+// 4. CẮT ZERO KHI DỪNG (DEAD-BAND):
+// Nếu trong 200ms không có xung nào (băng tải dừng), ép thẳng về 0.0 ngay lập tức!
+IF nSumDelta = 0 THEN
+    rSpeed_mm_s  := 0.0;
+    rSpeed_m_min := 0.0;
+ELSE
+    // Tính vận tốc trung bình trong 200ms
+    rSpeed_Avg_Raw := (TO_LREAL(nSumDelta) * rK_mm) / 0.2;
+
+    // Lọc mượt nhẹ
+    rSpeed_mm_s    := rSpeed_mm_s + 0.2 * (rSpeed_Avg_Raw - rSpeed_mm_s);
+
+    // LÀM TRÒN 1 CHỮ SỐ THẬP PHÂN (Để mắt nhìn thấy số đứng yên đầm chắc, ví dụ 100.2 mm/s)
+    rSpeed_mm_s    := DINT_TO_LREAL(LREAL_TO_DINT(rSpeed_mm_s * 10.0)) / 10.0;
+    rSpeed_m_min   := DINT_TO_LREAL(LREAL_TO_DINT((rSpeed_mm_s * 60.0 / 1000.0) * 10.0)) / 10.0;
+END_IF;
+
+// 5. Tổng quãng đường tích lũy (chuẩn xác 100% không lọc)
+rTotalDist_mm := rTotalDist_mm + (TO_LREAL(nDeltaPulse) * rK_mm);]]></ST>
+    </Implementation>
+    <LineIds Name="FB_ConveyorEncoder">
+      <LineId Id="343" Count="38" />
+      <LineId Id="9" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

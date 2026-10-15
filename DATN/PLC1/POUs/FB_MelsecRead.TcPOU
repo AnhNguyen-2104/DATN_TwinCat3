@@ -1,0 +1,282 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
+  <POU Name="FB_MelsecRead" Id="{2c16fe26-f900-4e46-aaa0-f589b86a5a6e}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_MelsecRead
+VAR_INPUT
+    bExecute        : BOOL;             // Cạnh lên bắt đầu đọc
+    eDevice         : E_MelsecDevice;   // DEV_D, DEV_M, DEV_W, DEV_R, DEV_ZR...
+    nStartAddr      : UDINT;            // Địa chỉ đầu: 100 = D100 hoặc M100
+    nPoints         : UINT;             // Số Word hoặc số Bit cần đọc
+    bBitAccess      : BOOL := FALSE;    // FALSE = Word/DWord; TRUE = Bit
+    pData           : PVOID;            // ADR(vùng dữ liệu nhận)
+    nDataSize       : UDINT;            // SIZEOF(vùng dữ liệu nhận)
+END_VAR
+
+VAR_IN_OUT
+    stSession       : ST_MelsecSession; // Socket TCP dùng chung
+END_VAR
+
+VAR_OUTPUT
+    bDone           : BOOL;             // Đọc thành công
+    bBusy           : BOOL;             // Đang giao dịch
+    bError          : BOOL;             // Lỗi giao dịch
+    nErrorID        : UDINT;            // Socket Error hoặc Mitsubishi End Code
+    nBytesRead      : UDINT;            // Số byte thực tế đã copy về
+END_VAR
+
+VAR
+    fbTrigger       : R_TRIG;
+    fbSend          : FB_SocketSend;
+    fbReceive       : FB_SocketReceive;
+    tonTimeout      : TON;
+
+    nState          : INT := 0;
+
+    aTx             : ARRAY[0..2047] OF BYTE;
+    aRx             : ARRAY[0..2047] OF BYTE;
+
+    nRequestLength  : UINT;
+    nSendLength     : UDINT;
+    nDataBytes      : UDINT;
+    nEndCode        : UINT;
+
+    pBoolData       : POINTER TO BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[fbTrigger(CLK := bExecute);
+
+// Trạng thái:
+// 0  = Chờ lệnh đọc
+// 10 = Phát cạnh gửi MC Protocol
+// 11 = Chờ gửi xong
+// 20 = Phát cạnh nhận dữ liệu
+// 21 = Chờ PLC-Q trả response
+
+CASE nState OF
+
+    0: // CHỜ CẠNH LÊN bExecute
+        bBusy  := FALSE;
+        bDone  := FALSE;
+        bError := FALSE;
+
+        IF fbTrigger.Q THEN
+            // Kiểm tra TCP session
+            IF NOT stSession.bConnected THEN
+                bError   := TRUE;
+                nErrorID := 16#E101; // TCP chưa kết nối
+
+            ELSIF stSession.bBusy THEN
+                bError   := TRUE;
+                nErrorID := 16#E102; // Socket đang do FB khác sử dụng
+
+            ELSIF (pData = 0) OR (nPoints = 0) THEN
+                bError   := TRUE;
+                nErrorID := 16#E103; // Buffer nhận hoặc số lượng không hợp lệ
+
+            ELSE
+                // ----------------------------------------------------
+                // MC Protocol 3E Binary Header
+                // ----------------------------------------------------
+                aTx[0]  := 16#50; aTx[1]  := 16#00; // Request subheader
+                aTx[2]  := 16#00;                   // Network No
+                aTx[3]  := 16#FF;                   // PC No
+                aTx[4]  := 16#FF; aTx[5] := 16#03; // Destination CPU 03FF
+                aTx[6]  := 16#00;                   // Station No
+
+                // Request data length = 12 bytes
+                aTx[7]  := 16#0C;
+                aTx[8]  := 16#00;
+
+                // CPU monitoring timer
+                aTx[9]  := 16#10;
+                aTx[10] := 16#00;
+
+                // Command: 0401h = Batch Read
+                aTx[11] := 16#01;
+                aTx[12] := 16#04;
+
+                // Subcommand:
+                // 0000h = Word unit
+                // 0001h = Bit unit
+                IF bBitAccess THEN
+                    aTx[13] := 16#01;
+                    aTx[14] := 16#00;
+                ELSE
+                    aTx[13] := 16#00;
+                    aTx[14] := 16#00;
+                END_IF;
+
+                // Start address: 3 byte little-endian
+                aTx[15] := UDINT_TO_BYTE(nStartAddr AND 16#FF);
+                aTx[16] := UDINT_TO_BYTE(SHR(nStartAddr, 8) AND 16#FF);
+                aTx[17] := UDINT_TO_BYTE(SHR(nStartAddr, 16) AND 16#FF);
+
+                // Device code: D, M, W, R, ZR...
+                aTx[18] := TO_BYTE(eDevice);
+
+                // Number of points
+                aTx[19] := UINT_TO_BYTE(nPoints AND 16#FF);
+                aTx[20] := UINT_TO_BYTE(SHR(nPoints, 8) AND 16#FF);
+
+                nRequestLength := 12;
+                nSendLength    := 21; // Header 9 + Request 12
+
+                bBusy           := TRUE;
+                stSession.bBusy := TRUE;
+                nState          := 10;
+            END_IF;
+        END_IF;
+
+
+    10: // PHÁT CẠNH GỬI LỆNH READ
+        fbSend(
+            sSrvNetId := '',
+            hSocket   := stSession.hSocket,
+            cbLen     := nSendLength,
+            pSrc      := ADR(aTx),
+            bExecute  := TRUE,
+            tTimeout  := T#3S
+        );
+
+        nState := 11;
+
+
+    11: // CHỜ GỬI XONG
+        fbSend(
+            sSrvNetId := '',
+            hSocket   := stSession.hSocket,
+            cbLen     := nSendLength,
+            pSrc      := ADR(aTx),
+            bExecute  := FALSE,
+            tTimeout  := T#3S
+        );
+
+        IF NOT fbSend.bBusy THEN
+            IF fbSend.bError THEN
+                bError           := TRUE;
+                nErrorID         := fbSend.nErrId;
+                bBusy            := FALSE;
+                stSession.bBusy  := FALSE;
+                nState           := 0;
+            ELSE
+                tonTimeout(IN := TRUE, PT := T#2S);
+                nState := 20;
+            END_IF;
+        END_IF;
+
+
+    20: // PHÁT CẠNH NHẬN RESPONSE
+        fbReceive(
+            sSrvNetId := '',
+            hSocket   := stSession.hSocket,
+            cbLen     := SIZEOF(aRx),
+            pDest     := ADR(aRx),
+            bExecute  := TRUE,
+            tTimeout  := T#3S
+        );
+
+        nState := 21;
+
+
+    21: // CHỜ PLC-Q TRẢ RESPONSE
+        fbReceive(
+            sSrvNetId := '',
+            hSocket   := stSession.hSocket,
+            cbLen     := SIZEOF(aRx),
+            pDest     := ADR(aRx),
+            bExecute  := FALSE,
+            tTimeout  := T#3S
+        );
+
+        IF NOT fbReceive.bBusy THEN
+            tonTimeout(IN := FALSE);
+
+            IF fbReceive.bError THEN
+                bError   := TRUE;
+                nErrorID := fbReceive.nErrId;
+
+            ELSIF fbReceive.nRecBytes < 11 THEN
+                bError   := TRUE;
+                nErrorID := 16#E104; // Response ngắn hơn frame tối thiểu
+
+            ELSIF (aRx[0] <> 16#D0) OR (aRx[1] <> 16#00) THEN
+                bError   := TRUE;
+                nErrorID := 16#E105; // Sai response header
+
+            ELSE
+                // End Code của Mitsubishi ở byte 9 và 10
+                nEndCode := BYTE_TO_UINT(aRx[9]) +
+                             BYTE_TO_UINT(aRx[10]) * 256;
+
+                IF nEndCode <> 0 THEN
+                    bError   := TRUE;
+                    nErrorID := nEndCode;
+
+                ELSE
+                    // Dữ liệu bắt đầu tại Byte 11 của response
+                    IF bBitAccess THEN
+                        // Test đơn giản: đọc 1 bit M/X/Y/B/L...
+                        IF nPoints = 1 THEN
+                            pBoolData := pData;
+
+                            // Bit đầu nằm ở High Nibble: 10h là ON, 00h là OFF
+                            pBoolData^ := ((aRx[11] AND 16#10) <> 0);
+                            nBytesRead := 1;
+                        ELSE
+                            // Đọc nhiều bit: cần buffer đã đóng gói nibble
+                            nDataBytes := (nPoints + 1) / 2;
+
+                            IF nDataBytes > nDataSize THEN
+                                nDataBytes := nDataSize;
+                            END_IF;
+
+                            MEMCPY(pData, ADR(aRx[11]), nDataBytes);
+                            nBytesRead := nDataBytes;
+                        END_IF;
+
+                    ELSE
+                        // Word mode: 1 word = 2 bytes
+                        nDataBytes := nPoints * 2;
+
+                        IF nDataBytes > nDataSize THEN
+                            nDataBytes := nDataSize;
+                        END_IF;
+
+                        MEMCPY(pData, ADR(aRx[11]), nDataBytes);
+                        nBytesRead := nDataBytes;
+                    END_IF;
+
+                    bDone := TRUE;
+                END_IF;
+            END_IF;
+
+            bBusy           := FALSE;
+            stSession.bBusy := FALSE;
+            nState          := 0;
+        END_IF;
+
+
+        IF tonTimeout.Q THEN
+            tonTimeout(IN := FALSE);
+
+            bError           := TRUE;
+            nErrorID         := 16#E106; // PLC không phản hồi trong 2 giây
+            bBusy            := FALSE;
+            stSession.bBusy  := FALSE;
+            nState           := 0;
+        END_IF;
+
+END_CASE;
+
+// Lưu lỗi gần nhất chung vào Session
+IF bError THEN
+    stSession.bError   := TRUE;
+    stSession.nErrorID := nErrorID;
+END_IF;]]></ST>
+    </Implementation>
+    <LineIds Name="FB_MelsecRead">
+      <LineId Id="50" Count="228" />
+      <LineId Id="9" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

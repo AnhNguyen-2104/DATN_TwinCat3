@@ -1,0 +1,268 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
+  <POU Name="MAIN" Id="{1dc1cc65-9e37-4e46-ab96-71432f29bc06}" SpecialFunc="None">
+    <Declaration><![CDATA[PROGRAM MAIN
+VAR
+    // ================================================================
+    // 1. TCP SESSION DÙNG CHUNG CHO PLC MITSUBISHI Q
+    // ================================================================
+    stMelsec            : ST_MelsecSession;
+
+    fbMelsecConfig      : FB_MelsecTcpConfig;
+    fbMelsecWrite       : FB_MelsecWrite;
+    fbMelsecRead        : FB_MelsecRead;
+
+    // Cấu hình mạng PLC-Q
+    bTcpEnable          : BOOL := TRUE;
+    sPlcQ_IP            : STRING(15) := '192.168.3.39';
+    nPlcQ_Port          : UDINT := 5010;
+
+    // Trạng thái kết nối
+    bPlcQConnected      : BOOL;
+    bPlcQError          : BOOL;
+    nPlcQErrorID        : UDINT;
+
+    // ================================================================
+    // 2. TEST GHI / ĐỌC D100-D101 DẠNG 32-BIT
+    // ================================================================
+    nD100_Value32       : DINT := 100;      // Số 32-bit gửi sang D100-D101
+    bWriteD100          : BOOL := FALSE;    // FALSE -> TRUE: ghi D100-D101
+    bWriteDone          : BOOL;
+    bWriteError         : BOOL;
+    nWriteErrorID       : UDINT;
+
+    bReadD100           : BOOL := FALSE;    // FALSE -> TRUE: đọc D100-D101
+    nD100_ReadBack      : DINT;             // Dữ liệu 32-bit đọc từ PLC-Q
+    bReadDone           : BOOL;
+    bReadError          : BOOL;
+    nReadErrorID        : UDINT;
+
+    // ================================================================
+    // 3. ENCODER BĂNG TẢI: ST-5114 MODULE 12
+    // ================================================================
+    fbConveyor          : FB_ConveyorEncoder;
+
+    nEncoderPulse       : UINT;            // Số xung Encoder hiện tại
+    nEncoderDelta       : INT;             // Xung thay đổi trong 10 ms
+    rConveyorSpeed      : LREAL;           // Vận tốc băng tải lọc mượt, mm/s
+    rConveyorSpeedMPM   : LREAL;           // Vận tốc băng tải, m/phút
+    rConveyorDist       : LREAL;           // Tổng quãng đường băng tải, mm
+
+    // ================================================================
+    // 4. EZI-SERVO: TRỤC QUAY ĐƠN VỊ DEGREE
+    // ================================================================
+    Axis1               : AXIS_REF;
+
+    fbServo             : FB_EziServoControl;
+
+    bServo_Enable       : BOOL := TRUE;     // TRUE = Servo ON / giữ cốt
+    bServo_Reset        : BOOL := FALSE;    // TRUE một chu kỳ = Reset Alarm
+    bServo_JogFwd       : BOOL := FALSE;    // TRUE = chạy thuận
+    bServo_JogBwd       : BOOL := FALSE;    // TRUE = chạy nghịch
+
+    rServo_Speed        : LREAL := 100.0;   // Degree/s
+    rServo_Acc          : LREAL := 400.0;   // Degree/s2
+    rServo_Dec          : LREAL := 400.0;   // Degree/s2
+
+    bServo_Ready        : BOOL;             // TRUE = Servo ON
+    rServo_ActPos_Deg   : LREAL;            // Góc thực tế, Degree
+    rServo_ActVel_Deg_s : LREAL;            // Vận tốc thực tế, Degree/s
+
+    // ================================================================
+    // 5. TRACKING 4 ĐIỂM: CAMERA + ENCODER
+    // ================================================================
+    fbTracking4Pt       : FB_ConveyorTracking4Pt;
+
+    // Camera giả lập test
+    bCameraTrigger      : BOOL := FALSE;    // FALSE -> TRUE: chốt sản phẩm mới
+    rCameraCenterX      : LREAL := 50.0;    // Tâm phôi X, mm
+    rCameraCenterY      : LREAL := 85.0;    // Tâm phôi Y, mm
+    rCameraAngleDeg     : LREAL := 0.0;     // Góc phôi, Degree
+    rProductLength      : LREAL := 40.0;    // mm
+    rProductWidth       : LREAL := 40.0;    // mm
+
+    // Kết quả debug Tracking
+    bProductValid       : BOOL;
+    nPulseAtCamera      : UINT;
+    nPulseTravel        : INT;
+    rPartTravel_mm      : LREAL;
+
+    aCornerBase         : ARRAY[1..4] OF ST_Point2D;
+    aCornerNow          : ARRAY[1..4] OF ST_Point2D;
+
+    // ================================================================
+    // 6. QD75 COMMAND PUBLISHER: ĐIỀU PHỐI 4 ĐỈNH SANG PLC-Q
+    // ================================================================
+    fbPublisher         : FB_QD75CommandPublisher;
+
+    // Lệnh chu trình chấm keo
+    bStartGlueCycle     : BOOL := FALSE;   // FALSE -> TRUE: kích chạy chu trình 4 đỉnh
+    bAbortGlueCycle     : BOOL := FALSE;   // TRUE: dừng khẩn cấp (ghi M105)
+
+    // Tín hiệu đọc từ PLC-Q (theo Contract Session 2)
+    bPlcQ_M1001_Done    : BOOL;            // M1001: PLC-Q báo xong 1 đỉnh
+    bPlcQ_M102_Busy     : BOOL;            // M102: PLC-Q đang bận chạy
+    bPlcQ_M103_InPos    : BOOL;            // M103: Trục đã vào vị trí
+    bPlcQ_M104_Alarm    : BOOL;            // M104: Báo động lỗi trục / ngoài biên
+
+    // Trạng thái giám sát chu trình
+    bGlueCycleBusy      : BOOL;            // Đang chạy 4 đỉnh
+    bGlueCycleDone      : BOOL;            // Hoàn tất cả 4 đỉnh
+    bGlueCycleError     : BOOL;            // Báo lỗi
+    nGlueCurVertex      : INT;             // Đỉnh đang thực hiện (1..4)
+    nGlueErrorCode      : INT;             // Mã lỗi (501..503, 901)
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// ================================================================
+// 1. TCP CONFIG: Kết nối / tự reconnect đến PLC-Q
+// ================================================================
+fbMelsecConfig(
+    bEnable     := bTcpEnable,
+    sRemoteHost := sPlcQ_IP,
+    nRemotePort := nPlcQ_Port,
+    stSession   := stMelsec
+);
+
+// Biến trạng thái đưa ra ngoài để Online debug dễ
+bPlcQConnected := stMelsec.bConnected;
+bPlcQError     := stMelsec.bError;
+nPlcQErrorID   := stMelsec.nErrorID;
+
+
+// ================================================================
+// 2. GENERIC WRITE: Ghi D100-D101 dạng DINT 32-bit
+// 1 DINT = 2 Word: D100 và D101
+// ================================================================
+fbMelsecWrite(
+    stSession   := stMelsec,
+    bExecute    := bWriteD100,
+    eDevice     := DEV_D,
+    nStartAddr  := 100,
+    nPoints     := 2,
+    bBitAccess  := FALSE,
+    pData       := ADR(nD100_Value32),
+    nDataSize   := SIZEOF(nD100_Value32),
+    bDone       => bWriteDone,
+    bError      => bWriteError,
+    nErrorID    => nWriteErrorID
+);
+
+
+// ================================================================
+// 3. GENERIC READ: Đọc D100-D101 dạng DINT 32-bit
+// ================================================================
+fbMelsecRead(
+    stSession   := stMelsec,
+    bExecute    := bReadD100,
+    eDevice     := DEV_D,
+    nStartAddr  := 100,
+    nPoints     := 2,
+    bBitAccess  := FALSE,
+    pData       := ADR(nD100_ReadBack),
+    nDataSize   := SIZEOF(nD100_ReadBack),
+    bDone       => bReadDone,
+    bError      => bReadError,
+    nErrorID    => nReadErrorID
+);
+
+
+// ================================================================
+// 4. ENCODER BĂNG TẢI: ST-5114 INPUT BYTE 0 + BYTE 1
+// ================================================================
+fbConveyor(
+    bByte0          := GVL.aIn[0],
+    bByte1          := GVL.aIn[1],
+    rK_mm           := 0.476475,
+    rCycleTime      := 0.01,
+
+    nRawPulse       => nEncoderPulse,
+    nDeltaPulse     => nEncoderDelta,
+    rSpeed_mm_s     => rConveyorSpeed,
+    rSpeed_m_min    => rConveyorSpeedMPM,
+    rTotalDist_mm   => rConveyorDist
+);
+
+// ================================================================
+// 5. EZI-SERVO: ENABLE, RESET, JOG VÀ GIÁM SÁT
+// ================================================================
+fbServo(
+    Axis            := Axis1,
+    bEnable         := bServo_Enable,
+    bResetFault     := bServo_Reset,
+    bJogFwd         := bServo_JogFwd,
+    bJogBwd         := bServo_JogBwd,
+    rTargetVelocity := rServo_Speed,
+    rAcc            := rServo_Acc,
+    rDec            := rServo_Dec,
+
+    bReady          => bServo_Ready,
+    rActPos_Deg     => rServo_ActPos_Deg,
+    rActVel_Deg     => rServo_ActVel_Deg_s
+);
+
+// Reset chỉ cần là một xung, không giữ TRUE liên tục.
+IF bServo_Reset THEN
+    bServo_Reset := FALSE;
+END_IF;
+// ================================================================
+// TRACKING 4 ĐIỂM:
+// Camera chốt mốc Encoder, sau đó bốn góc cập nhật mỗi scan.
+// ================================================================
+fbTracking4Pt(
+    bCameraResult  := bCameraTrigger,
+    rCenterX_mm    := rCameraCenterX,
+    rCenterY_mm    := rCameraCenterY,
+    rAngleDeg      := rCameraAngleDeg,
+    rLength_mm     := rProductLength,
+    rWidth_mm      := rProductWidth,
+
+    nEncoderNow    := nEncoderPulse,
+    rMmPerPulse    := 0.476475,
+
+    bProductValid  => bProductValid,
+    nPulseAtCamera => nPulseAtCamera,
+    nPulseTravel   => nPulseTravel,
+    rTravel_mm     => rPartTravel_mm,
+    aCornerBase    => aCornerBase,
+    aCornerNow     => aCornerNow
+);
+
+// ================================================================
+// 6. QD75 COMMAND PUBLISHER: ĐIỀU PHỐI 4 ĐỈNH SANG PLC-Q (M1000 / M1001)
+// ================================================================
+fbPublisher(
+    stSession           := stMelsec,
+    bStartCycle         := bStartGlueCycle,
+    bAbortCycle         := bAbortGlueCycle,
+    aCornerNow          := aCornerNow,
+    rConveyorSpeed_mm_s := rConveyorSpeed,
+    rFlyTime_s          := 0.120,
+    rApproachSpeed_mm_s := 500.0,
+    rSyncTime_s         := 0.060,
+    rZDown_mm           := 4.0,
+    rZSafe_mm           := 0.0,
+    bM1001_Done         := bPlcQ_M1001_Done,
+    bM102_Busy          := bPlcQ_M102_Busy,
+    bM103_InPosition    := bPlcQ_M103_InPos,
+    bM104_Alarm         := bPlcQ_M104_Alarm,
+    bBusy               => bGlueCycleBusy,
+    bDone               => bGlueCycleDone,
+    bError              => bGlueCycleError,
+    nErrorCode          => nGlueErrorCode,
+    nCurrentVertex      => nGlueCurVertex
+);
+
+]]></ST>
+    </Implementation>
+    <LineIds Name="MAIN">
+      <LineId Id="2227" Count="66" />
+      <LineId Id="1352" Count="0" />
+      <LineId Id="2316" Count="21" />
+      <LineId Id="2315" Count="0" />
+      <LineId Id="2361" Count="20" />
+      <LineId Id="2360" Count="0" />
+      <LineId Id="2493" Count="32" />
+      <LineId Id="2492" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

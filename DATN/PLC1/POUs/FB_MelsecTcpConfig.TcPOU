@@ -1,0 +1,136 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
+  <POU Name="FB_MelsecTcpConfig" Id="{2c1b3f6a-9514-446c-8292-33fe1d4b7aec}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_MelsecTcpConfig
+VAR_INPUT
+    bEnable         : BOOL := TRUE;                 // TRUE = duy trì kết nối
+    sRemoteHost     : STRING(15) := '192.168.3.39'; // IP PLC-Q
+    nRemotePort     : UDINT := 5010;               // Port MC Protocol
+END_VAR
+VAR_IN_OUT
+    stSession       : ST_MelsecSession;             // Session TCP dùng chung
+END_VAR
+VAR
+    fbConnect       : FB_SocketConnect;
+    fbClose         : FB_SocketClose;
+    tonRetry        : TON;
+
+    nState          : INT := 0;
+    bConnectError   : BOOL;
+    nConnectErrorID : UDINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// State:
+// 0 = chờ reconnect
+// 1 = phát cạnh mở TCP
+// 2 = chờ kết quả kết nối
+// 10 = đã kết nối
+// 20 = đóng socket khi Disable
+
+CASE nState OF
+
+    0: // Chờ 2 giây trước khi thử kết nối / kết nối lại
+        stSession.bConnected := FALSE;
+        stSession.bBusy      := FALSE;
+
+        IF NOT bEnable THEN
+            tonRetry(IN := FALSE);
+            stSession.bError := FALSE;
+        ELSE
+            tonRetry(IN := TRUE, PT := T#2S);
+
+            IF tonRetry.Q THEN
+                tonRetry(IN := FALSE);
+                stSession.bError   := FALSE;
+                stSession.nErrorID := 0;
+                nState := 1;
+            END_IF
+        END_IF
+
+
+    1: // Cạnh lên mở TCP Socket
+        fbConnect(
+            sSrvNetId   := '',
+            sRemoteHost := sRemoteHost,
+            nRemotePort := nRemotePort,
+            bExecute    := TRUE,
+            tTimeout    := T#3S,
+            bError      => bConnectError,
+            nErrId      => nConnectErrorID,
+            hSocket     => stSession.hSocket
+        );
+
+        stSession.bBusy := TRUE;
+        nState := 2;
+
+
+    2: // Chờ FB_SocketConnect hoàn thành
+        fbConnect(
+            sSrvNetId   := '',
+            sRemoteHost := sRemoteHost,
+            nRemotePort := nRemotePort,
+            bExecute    := FALSE,
+            tTimeout    := T#3S,
+            bError      => bConnectError,
+            nErrId      => nConnectErrorID,
+            hSocket     => stSession.hSocket
+        );
+
+        IF NOT fbConnect.bBusy THEN
+            stSession.bBusy := FALSE;
+
+            IF bConnectError THEN
+                stSession.bError   := TRUE;
+                stSession.nErrorID := nConnectErrorID;
+                stSession.hSocket.handle := 0;
+                nState := 0; // Chờ 2 giây, tự thử lại
+            ELSE
+                stSession.bConnected := TRUE;
+                stSession.bError     := FALSE;
+                nState := 10;
+            END_IF
+        END_IF
+
+
+    10: // TCP đang kết nối tốt
+        stSession.bConnected := TRUE;
+
+        IF NOT bEnable THEN
+            nState := 20;
+        END_IF
+
+
+    20: // Đóng TCP Socket khi Disable
+        fbClose(
+            sSrvNetId := '',
+            hSocket   := stSession.hSocket,
+            bExecute  := TRUE,
+            tTimeout  := T#3S
+        );
+
+        nState := 21;
+
+
+    21: // Chờ đóng xong
+        fbClose(
+            sSrvNetId := '',
+            hSocket   := stSession.hSocket,
+            bExecute  := FALSE,
+            tTimeout  := T#3S
+        );
+
+        IF NOT fbClose.bBusy THEN
+            stSession.hSocket.handle := 0;
+            stSession.bConnected     := FALSE;
+            stSession.bBusy          := FALSE;
+            nState := 0;
+        END_IF
+
+END_CASE]]></ST>
+    </Implementation>
+    <LineIds Name="FB_MelsecTcpConfig">
+      <LineId Id="27" Count="105" />
+      <LineId Id="9" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>

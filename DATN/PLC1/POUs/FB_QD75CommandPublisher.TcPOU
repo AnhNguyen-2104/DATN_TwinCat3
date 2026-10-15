@@ -1,0 +1,228 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1" ProductVersion="3.1.4024.16">
+  <POU Name="FB_QD75CommandPublisher" Id="{9ce28e12-ab97-4ea0-93f3-32a033782ac4}" SpecialFunc="None">
+    <Declaration><![CDATA[FUNCTION_BLOCK FB_QD75CommandPublisher
+VAR_INPUT
+    bStartCycle         : BOOL;
+    bAbortCycle         : BOOL;
+    aCornerNow          : ARRAY[1..4] OF ST_Point2D;
+    rConveyorSpeed_mm_s : LREAL;
+    rFlyTime_s          : LREAL := 0.120;
+    rApproachSpeed_mm_s : LREAL := 500.0;
+    rSyncTime_s         : LREAL := 0.060;
+    rZDown_mm           : LREAL := 4.0;
+    rZSafe_mm           : LREAL := 0.0;
+    bM1001_Done         : BOOL;
+    bM102_Busy          : BOOL;
+    bM103_InPosition    : BOOL;
+    bM104_Alarm         : BOOL;
+END_VAR
+
+VAR_IN_OUT
+    stSession           : ST_MelsecSession;
+END_VAR
+
+VAR_OUTPUT
+    stCommand           : ST_QD75_Command;
+    bCmdM1000           : BOOL;
+    bCmdM105            : BOOL;
+    bBusy               : BOOL;
+    bDone               : BOOL;
+    bError              : BOOL;
+    nErrorCode          : INT;
+    nCurrentVertex      : INT;
+    rTargetX_mm         : LREAL;
+    rTargetY_mm         : LREAL;
+    rLead_mm            : LREAL;
+    rDeltaXSync_mm      : LREAL;
+END_VAR
+
+VAR
+    fbWrite             : FB_MelsecWrite;
+    fbRead              : FB_MelsecRead;
+    bM1000_Value        : BOOL;
+    bM1001_Value        : BOOL;
+    bM102_Value         : BOOL;
+    bM104_Value         : BOOL;
+    bWriteReq           : BOOL;
+    bReadReq            : BOOL;
+    bReadM1001Req       : BOOL;
+    bWriteM1000Req      : BOOL;
+    bWriteCommandReq    : BOOL;
+    bWriteDone          : BOOL;
+    bWriteError         : BOOL;
+    bReadDone           : BOOL;
+    bReadError          : BOOL;
+    nCommError          : UDINT;
+    tonPoll             : TON;
+    tonTimeout          : TON;
+    fbStartEdge         : R_TRIG;
+    nState              : INT := 0;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[fbStartEdge(CLK := bStartCycle);
+
+bWriteCommand := FALSE;
+bWriteStart := FALSE;
+bReadM1001Req := FALSE;
+
+IF bAbortCycle THEN
+    bCmdM105 := TRUE;
+    bCmdM1000 := FALSE;
+    bBusy := FALSE;
+    bDone := FALSE;
+    nState := 99;
+ELSE
+    bCmdM105 := FALSE;
+    CASE nState OF
+        0:
+            bBusy := FALSE;
+            bDone := FALSE;
+            bError := FALSE;
+            nErrorCode := 0;
+            bCmdM1000 := FALSE;
+            IF fbStartEdge.Q THEN
+                IF NOT stSession.bConnected THEN
+                    bError := TRUE; nErrorCode := 900;
+                ELSIF bM104_Alarm THEN
+                    bError := TRUE; nErrorCode := 901;
+                ELSE
+                    bBusy := TRUE;
+                    nCurrentVertex := 1;
+                    nState := 10;
+                END_IF;
+            END_IF;
+
+        10:
+            IF bM104_Alarm THEN
+                bError := TRUE; nErrorCode := 901; nState := 99;
+            ELSIF NOT bM102_Busy AND NOT bM1001_Done THEN
+                nState := 20;
+            END_IF;
+
+        20:
+            rLead_mm := rConveyorSpeed_mm_s * rFlyTime_s;
+            rDeltaXSync_mm := rConveyorSpeed_mm_s * rSyncTime_s;
+            rTargetX_mm := aCornerNow[nCurrentVertex].X + rLead_mm;
+            rTargetY_mm := aCornerNow[nCurrentVertex].Y;
+
+            IF rTargetX_mm < 0.0 OR rTargetX_mm + rDeltaXSync_mm > 180.0 THEN
+                bError := TRUE; nErrorCode := 501; nState := 99;
+            ELSIF rTargetY_mm < 0.0 OR rTargetY_mm > 170.0 THEN
+                bError := TRUE; nErrorCode := 502; nState := 99;
+            ELSIF rZDown_mm > 52.0 OR rZSafe_mm > 52.0 OR rZDown_mm < rZSafe_mm THEN
+                bError := TRUE; nErrorCode := 503; nState := 99;
+            ELSE
+                stCommand.Target_X := LREAL_TO_DINT(rTargetX_mm * 10000.0);
+                stCommand.Target_Y := LREAL_TO_DINT(rTargetY_mm * 10000.0);
+                stCommand.Target_Z_Down := LREAL_TO_DINT(rZDown_mm * 10000.0);
+                stCommand.Target_Z_Safe := LREAL_TO_DINT(rZSafe_mm * 10000.0);
+                stCommand.Speed_Approach := LREAL_TO_DINT(rApproachSpeed_mm_s * 6000.0);
+                stCommand.Speed_Sync := LREAL_TO_DINT(rConveyorSpeed_mm_s * 6000.0);
+                stCommand.DeltaX_Sync := LREAL_TO_DINT(rDeltaXSync_mm * 10000.0);
+                stCommand.Vertex_Index := nCurrentVertex;
+                bWriteCommand := TRUE;
+                nState := 21;
+            END_IF;
+
+        21:
+            IF bWriteDone THEN
+                bCmdM1000 := TRUE;
+                bWriteStart := TRUE;
+                nState := 22;
+            ELSIF bWriteError THEN
+                bError := TRUE; nErrorCode := 910; nState := 99;
+            END_IF;
+
+        22:
+            IF bWriteDone THEN
+                tonTimeout(IN := TRUE, PT := T#5S);
+                nState := 30;
+            ELSIF bWriteError THEN
+                bError := TRUE; nErrorCode := 911; nState := 99;
+            END_IF;
+
+        30:
+            tonPoll(IN := TRUE, PT := T#20MS);
+            IF tonPoll.Q THEN
+                tonPoll(IN := FALSE);
+                bReadM1001Req := TRUE;
+                nState := 31;
+            END_IF;
+            IF tonTimeout.Q OR bM104_Alarm THEN
+                bError := TRUE; nErrorCode := 920; nState := 99;
+            END_IF;
+
+        31:
+            IF bReadDone THEN
+                IF bM1001_Value THEN
+                    tonTimeout(IN := FALSE);
+                    bCmdM1000 := FALSE;
+                    bWriteStart := TRUE;
+                    nState := 32;
+                ELSE
+                    nState := 30;
+                END_IF;
+            ELSIF bReadError THEN
+                nState := 30;
+            END_IF;
+
+        32:
+            IF bWriteDone THEN
+                nState := 40;
+            ELSIF bWriteError THEN
+                bError := TRUE; nErrorCode := 912; nState := 99;
+            END_IF;
+
+        40:
+            IF NOT bM1001_Done AND NOT bM103_InPosition THEN
+                IF nCurrentVertex < 4 THEN
+                    nCurrentVertex := nCurrentVertex + 1;
+                    nState := 10;
+                ELSE
+                    bBusy := FALSE; bDone := TRUE; nState := 0;
+                END_IF;
+            END_IF;
+
+        99:
+            bBusy := FALSE;
+            bCmdM1000 := FALSE;
+            IF NOT bStartCycle THEN nState := 0; END_IF;
+    END_CASE;
+END_IF;
+
+fbWrite(
+    stSession := stSession,
+    bExecute := bWriteCommand OR bWriteStart,
+    eDevice := SEL(bWriteStart, DEV_M, DEV_D),
+    nStartAddr := SEL(bWriteStart, 1000, 100),
+    nPoints := SEL(bWriteStart, 1, 15),
+    bBitAccess := bWriteStart,
+    pData := SEL(bWriteStart, ADR(bM1000_Value), ADR(stCommand)),
+    nDataSize := SEL(bWriteStart, SIZEOF(bM1000_Value), SIZEOF(stCommand)),
+    bDone => bWriteDone,
+    bError => bWriteError,
+    nErrorID => nCommError
+);
+
+fbRead(
+    stSession := stSession,
+    bExecute := bReadM1001Req,
+    eDevice := DEV_M,
+    nStartAddr := 1001,
+    nPoints := 1,
+    bBitAccess := TRUE,
+    pData := ADR(bM1001_Value),
+    nDataSize := SIZEOF(bM1001_Value),
+    bDone => bReadDone,
+    bError => bReadError,
+    nErrorID => nCommError
+);
+]]></ST>
+    </Implementation>
+    <LineIds Name="FB_QD75CommandPublisher">
+      <LineId Id="223" Count="180" />
+      <LineId Id="9" Count="0" />
+    </LineIds>
+  </POU>
+</TcPlcObject>
