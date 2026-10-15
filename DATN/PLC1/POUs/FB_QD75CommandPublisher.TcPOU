@@ -178,9 +178,11 @@ fbWrite(stSession := stSession, bExecute := bWriteCommandReq OR bWriteM1000Req O
     bBitAccess := bWriteBitMode, pData := pWriteData, nDataSize := nWriteDataSize,
     bDone => bWriteDone, bError => bWriteError, nErrorID => nCommError);
 
-fbRead(stSession := stSession, bExecute := bReadStatusReq, eDevice := DEV_M, nStartAddr := 1001 + nStatusIndex,
-    nPoints := 1, bBitAccess := TRUE, pData := ADR(bStatusBit), nDataSize := SIZEOF(bStatusBit),
-    bDone => bReadDone, bError => bReadError, nErrorID => nCommError);
+    fbRead(stSession := stSession, bExecute := bReadStatusReq, eDevice := DEV_M,
+        nStartAddr := UDINT#1001 + INT_TO_UDINT(nStatusIndex),
+        nPoints := UINT#1, bBitAccess := TRUE,
+        pData := ADR(bStatusBit), nDataSize := SIZEOF(bStatusBit),
+        bDone => bReadDone, bError => bReadError, nErrorID => nCommError);
 
 IF bReadDone THEN
     bReadStatusReq := FALSE;
