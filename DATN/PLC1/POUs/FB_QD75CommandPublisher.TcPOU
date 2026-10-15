@@ -105,6 +105,18 @@ ELSE
             IF rTargetX_mm < 0.0 OR rTargetX_mm + rDeltaXSync_mm > 180.0 THEN bError := TRUE; nErrorCode := 501; nState := 99;
             ELSIF rTargetY_mm < 0.0 OR rTargetY_mm > 170.0 THEN bError := TRUE; nErrorCode := 502; nState := 99;
             ELSIF rZDown_mm > 52.0 OR rZSafe_mm > 52.0 OR rZDown_mm < rZSafe_mm THEN bError := TRUE; nErrorCode := 503; nState := 99;
+            ELSE
+                stCommand.Target_X := LREAL_TO_DINT(rTargetX_mm * 10000.0);
+                stCommand.Target_Y := LREAL_TO_DINT(rTargetY_mm * 10000.0);
+                stCommand.Target_Z_Down := LREAL_TO_DINT(rZDown_mm * 10000.0);
+                stCommand.Target_Z_Safe := LREAL_TO_DINT(rZSafe_mm * 10000.0);
+                stCommand.Speed_Approach := LREAL_TO_DINT(rApproachSpeed_mm_s * 6000.0);
+                stCommand.Speed_Sync := LREAL_TO_DINT(rConveyorSpeed_mm_s * 6000.0);
+                stCommand.DeltaX_Sync := LREAL_TO_DINT(rDeltaXSync_mm * 10000.0);
+                stCommand.Vertex_Index := nCurrentVertex;
+                bWriteCommandReq := TRUE;
+                nState := 21;
+            END_IF;
         30:
             tonPoll(IN := TRUE, PT := T#20MS);
             IF tonPoll.Q THEN
