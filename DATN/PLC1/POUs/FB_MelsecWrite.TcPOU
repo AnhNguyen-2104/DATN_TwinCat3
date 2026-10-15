@@ -49,13 +49,13 @@ IF nState = 0 THEN
     bError := FALSE;
 END_IF;
 
-// Session báo đang giao dịch để FB Read không được chen vào cùng socket
-stSession.bBusy := bBusy;
+
 
 CASE nState OF
 
     0: // Chờ cạnh lên bExecute
         bBusy := FALSE;
+        stSession.bBusy := FALSE;
 
         IF fbTrigger.Q THEN
             // Chỉ gửi khi TCP đã kết nối và chưa có giao dịch khác
@@ -151,8 +151,8 @@ CASE nState OF
                 aTx[8] := UINT_TO_BYTE(SHR(nRequestLength, 8) AND 16#FF);
 
                 nSendLength := 9 + nRequestLength;
-
                 bBusy  := TRUE;
+                stSession.bBusy := TRUE;
                 nState := 10;
             END_IF;
         END_IF;

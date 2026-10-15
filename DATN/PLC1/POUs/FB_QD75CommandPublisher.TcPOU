@@ -117,6 +117,26 @@ ELSE
                 bWriteCommandReq := TRUE;
                 nState := 21;
             END_IF;
+        21:
+            IF bWriteDone THEN
+                bCmdM1000 := TRUE;
+                bWriteM1000Req := TRUE;
+                nState := 22;
+            ELSIF bWriteError THEN
+                bError := TRUE;
+                nErrorCode := 910;
+                nState := 99;
+            END_IF;
+
+        22:
+            IF bWriteDone THEN
+                tonTimeout(IN := TRUE, PT := T#5S);
+                nState := 30;
+            ELSIF bWriteError THEN
+                bError := TRUE;
+                nErrorCode := 911;
+                nState := 99;
+            END_IF;
         30:
             tonPoll(IN := TRUE, PT := T#20MS);
             IF tonPoll.Q THEN

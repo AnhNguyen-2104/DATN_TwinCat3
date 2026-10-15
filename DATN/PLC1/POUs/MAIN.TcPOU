@@ -21,21 +21,6 @@ VAR
     nPlcQErrorID        : UDINT;
 
     // ================================================================
-    // 2. TEST GHI / ĐỌC D100-D101 DẠNG 32-BIT
-    // ================================================================
-    nD100_Value32       : DINT := 100;      // Số 32-bit gửi sang D100-D101
-    bWriteD100          : BOOL := FALSE;    // FALSE -> TRUE: ghi D100-D101
-    bWriteDone          : BOOL;
-    bWriteError         : BOOL;
-    nWriteErrorID       : UDINT;
-
-    bReadD100           : BOOL := FALSE;    // FALSE -> TRUE: đọc D100-D101
-    nD100_ReadBack      : DINT;             // Dữ liệu 32-bit đọc từ PLC-Q
-    bReadDone           : BOOL;
-    bReadError          : BOOL;
-    nReadErrorID        : UDINT;
-
-    // ================================================================
     // 3. ENCODER BĂNG TẢI: ST-5114 MODULE 12
     // ================================================================
     fbConveyor          : FB_ConveyorEncoder;
